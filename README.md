@@ -3,6 +3,8 @@
 Long lived objects in memory introduce expensive GC overhead, the GC latency can go up to hundreds of milliseconds with just a few millions of live objects. 
 With FreeCache, you can cache unlimited number of objects in memory without increased GC latency. 
 
+[![Build Status](https://travis-ci.org/coocood/freecache.png?branch=master)](https://travis-ci.org/coocood/freecache)
+
 ##Features
 * Store hundreds of millions of entries
 * Zero GC overhead
