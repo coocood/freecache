@@ -30,10 +30,9 @@ func NewCache(size int) (cache *Cache) {
 	return
 }
 
-// The Set method do not return error because it does not promise the data written
-// can be retrieved later. If the key is larger than 65535 or value is larger
-// than 1/1024 of the cache size, the entry will not be written to the cache.
-// expireSeconds <= 0 means no expire, but it can be evicted when cache is full.
+// If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
+// the entry will not be written to the cache. expireSeconds <= 0 means no expire,
+// but it can be evicted when cache is full.
 func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 	hashVal := fnvaHash(key)
 	segId := hashVal & 255
