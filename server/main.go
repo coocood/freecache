@@ -5,13 +5,13 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"github.com/coocood/freecache"
 	"io"
 	"log"
 	"net"
+	"runtime"
 	"strconv"
 	"time"
-	"runtime"
-	"github.com/coocood/freecache"
 )
 
 var (
@@ -56,9 +56,9 @@ type Session struct {
 }
 
 type Server struct {
-	closeChan     chan bool
-	requestChan   chan struct{}
-	cache         *freecache.Cache
+	closeChan   chan bool
+	requestChan chan struct{}
+	cache       *freecache.Cache
 }
 
 func NewServer(cacheSize int) (server *Server) {
@@ -232,7 +232,7 @@ func (down *Session) readLoop() {
 					reply.Write(value)
 					reply.Write(CRLF)
 				}
-			} else if bytes.Equal(req.args[0], DEL){
+			} else if bytes.Equal(req.args[0], DEL) {
 				if down.server.cache.Del(req.args[1]) {
 					reply.Write(CONE)
 				} else {

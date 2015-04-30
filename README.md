@@ -5,6 +5,50 @@ With FreeCache, you can cache unlimited number of objects in memory without incr
 
 [![Build Status](https://travis-ci.org/coocood/freecache.png?branch=master)](https://travis-ci.org/coocood/freecache)
 
+##About GC Pause Issue
+
+Here is the demo code for the GC pause issue, you can run it yourself.
+On my laptop, GC pause with FreeCache is under 200us, but with map, it is more than 300ms.
+
+    package main
+    
+    import (
+    	"fmt"
+    	"github.com/coocood/freecache"
+    	"runtime"
+    	"runtime/debug"
+    	"time"
+    )
+    
+    var mapCache map[string][]byte
+    
+    func GCPause() time.Duration {
+    	runtime.GC()
+    	var stats debug.GCStats
+    	debug.ReadGCStats(&stats)
+    	return stats.Pause[0]
+    }
+    
+    func main() {
+    	n := 3000 * 1000
+    	freeCache := freecache.NewCache(512 * 1024 * 1024)
+    	debug.SetGCPercent(10)
+    	for i := 0; i < n; i++ {
+    		key := fmt.Sprintf("key%v", i)
+    		val := make([]byte, 10)
+    		freeCache.Set([]byte(key), val, 0)
+    	}
+    	fmt.Println("GC pause with free cache:", GCPause())
+        freeCache = nil
+    	mapCache = make(map[string][]byte)
+    	for i := 0; i < n; i++ {
+    		key := fmt.Sprintf("key%v", i)
+    		val := make([]byte, 10)
+    		mapCache[key] = val
+    	}
+    	fmt.Println("GC pause with map cache:", GCPause())
+    }
+    
 ##Features
 * Store hundreds of millions of entries
 * Zero GC overhead
@@ -15,10 +59,11 @@ With FreeCache, you can cache unlimited number of objects in memory without incr
 * Strictly limited memory usage
 * Come with a toy server that supports a few basic Redis commands with pipeline
 
-##Example
+##Example Usage
 
-    cacheSize := 1024*1024
+    cacheSize := 100*1024*1024
     cache := freecache.NewCache(cacheSize)
+    debug.SetGCPercent(20)
     key := []byte("abc")
     val := []byte("def")
     expire := 60 // expire in 60 seconds
@@ -32,6 +77,7 @@ With FreeCache, you can cache unlimited number of objects in memory without incr
     affected := cache.Del(key)
     fmt.Println("deleted key ", affected)
     fmt.Println("entry count ", cache.EntryCount())
+
     
 ##Notice
 * Recommended Go version is 1.4.
