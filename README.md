@@ -1,9 +1,10 @@
-#FreeCache - A cache library for Go with ZERO GC overhead.
+#FreeCache - A cache library for Go with zero GC overhead.
 
 Long lived objects in memory introduce expensive GC overhead, the GC latency can go up to hundreds of milliseconds with just a few millions of live objects. 
 With FreeCache, you can cache unlimited number of objects in memory without increased GC latency. 
 
 [![Build Status](https://travis-ci.org/coocood/freecache.png?branch=master)](https://travis-ci.org/coocood/freecache)
+[![](http://gocover.io/_badge/github.com/coocood/freecache)](http://gocover.io/github.com/coocood/freecache)
 
 ##About GC Pause Issue
 
@@ -88,6 +89,10 @@ to a much lower percentage to get a normal GC frequency.
 ##How it is done
 FreeCache avoids GC overhead by reducing the number of pointers.
 No matter how many entries stored in it, there are only 512 pointers.
+The data set is sharded into 256 segments by the hash value of the key.
+Each segment has only two pointers, one is the ring buffer that stores keys and values, 
+the other one is the index slice which used to lookup for an entry.
+Each segment has its own lock, so it supports high concurrent access.
 
 ##License
 The MIT License
