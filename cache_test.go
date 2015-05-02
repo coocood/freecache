@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"encoding/binary"
 )
 
 func TestRingCache(t *testing.T) {
@@ -93,4 +94,55 @@ func TestRingCache(t *testing.T) {
 
 	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v\n",
 		float64(hitCount)/float64(n/2), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime())
+}
+
+func BenchmarkCacheSet(b *testing.B) {
+	cache := NewCache(256*1024*1024)
+	var key [8]byte
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], make([]byte, 8), 0)
+	}
+}
+
+func BenchmarkMapSet(b *testing.B) {
+	m := make(map[string][]byte)
+	var key [8]byte
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		m[string(key[:])] = make([]byte, 8)
+	}
+}
+
+func BenchmarkCacheGet(b *testing.B) {
+	b.StopTimer()
+	cache := NewCache(256*1024*1024)
+	var key [8]byte
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], make([]byte, 8), 0)
+	}
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Get(key[:])
+	}
+}
+
+func BenchmarkMapGet(b *testing.B) {
+	b.StopTimer()
+	m := make(map[string][]byte)
+	var key [8]byte
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		m[string(key[:])] = make([]byte, 8)
+	}
+	b.StartTimer()
+	var hitCount int64
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		if m[string(key[:])] != nil {
+			hitCount++
+		}
+	}
 }

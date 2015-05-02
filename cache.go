@@ -2,11 +2,14 @@ package freecache
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 type Cache struct {
-	locks    [256]sync.Mutex
-	segments [256]segment
+	locks     [256]sync.Mutex
+	segments  [256]segment
+	hitCount  int64
+	missCount int64
 }
 
 func fnvaHash(data []byte) uint64 {
@@ -49,6 +52,11 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	cache.locks[segId].Lock()
 	value, err = cache.segments[segId].get(key, hashVal)
 	cache.locks[segId].Unlock()
+	if err == nil {
+		atomic.AddInt64(&cache.hitCount, 1)
+	} else {
+		atomic.AddInt64(&cache.missCount, 1)
+	}
 	return
 }
 
@@ -61,32 +69,46 @@ func (cache *Cache) Del(key []byte) (affected bool) {
 	return
 }
 
-func (cache *Cache) EvacuateCount() (count int) {
+func (cache *Cache) EvacuateCount() (count int64) {
 	for i := 0; i < 256; i++ {
-		cache.locks[i].Lock()
-		count += cache.segments[i].totalEvacuate
-		cache.locks[i].Unlock()
+		count += atomic.LoadInt64(&cache.segments[i].totalEvacuate)
 	}
 	return
 }
 
 func (cache *Cache) EntryCount() (entryCount int64) {
 	for i := 0; i < 256; i++ {
-		cache.locks[i].Lock()
-		entryCount += cache.segments[i].entryCount
-		cache.locks[i].Unlock()
+		entryCount += atomic.LoadInt64(&cache.segments[i].entryCount)
 	}
 	return
 }
 
-func (cache *Cache) AverageAccessTime() (averageTime int64) {
+func (cache *Cache) AverageAccessTime() int64 {
 	var entryCount, totalTime int64
 	for i := 0; i < 256; i++ {
-		cache.locks[i].Lock()
-		totalTime += cache.segments[i].totalTime
-		entryCount += cache.segments[i].entryCount
-		cache.locks[i].Unlock()
+		totalTime += atomic.LoadInt64(&cache.segments[i].totalTime)
+		entryCount += atomic.LoadInt64(&cache.segments[i].entryCount)
 	}
-	averageTime = totalTime / entryCount
-	return
+	if entryCount == 0 {
+		return 0
+	} else {
+		return totalTime / entryCount
+	}
+}
+
+func (cache *Cache) HitCount() int64 {
+	return atomic.LoadInt64(&cache.hitCount)
+}
+
+func (cache *Cache) LookupCount() int64 {
+	return atomic.LoadInt64(&cache.hitCount) + atomic.LoadInt64(&cache.missCount)
+}
+
+func (cache *Cache) HitRate() float64 {
+	lookupCount := cache.LookupCount()
+	if lookupCount == 0 {
+		return 0
+	} else {
+		return float64(cache.HitCount())/float64(lookupCount)
+	}
 }

@@ -60,6 +60,15 @@ On my laptop, GC pause with FreeCache is under 200us, but with map, it is more t
 * Strictly limited memory usage
 * Come with a toy server that supports a few basic Redis commands with pipeline
 
+##Performance
+Here is the benchmark result compares to build-in map, `Set` performance is about 2x faster than build-in map, `Get` performance is about 1/2x slower than build-in map. Since it is single threaded benchmark, in multi-threaded environment, 
+FreeCache should be many times faster than single lock protected build-in map.
+
+    BenchmarkCacheSet        3000000               446 ns/op
+    BenchmarkMapSet          2000000               861 ns/op
+    BenchmarkCacheGet        3000000               517 ns/op
+    BenchmarkMapGet         10000000               212 ns/op
+
 ##Example Usage
 
     cacheSize := 100*1024*1024
@@ -78,7 +87,6 @@ On my laptop, GC pause with FreeCache is under 200us, but with map, it is more t
     affected := cache.Del(key)
     fmt.Println("deleted key ", affected)
     fmt.Println("entry count ", cache.EntryCount())
-
     
 ##Notice
 * Recommended Go version is 1.4.

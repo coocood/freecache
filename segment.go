@@ -40,7 +40,7 @@ type segment struct {
 	segId         int
 	entryCount    int64
 	totalTime     int64      // used to calculate least recent used entry.
-	totalEvacuate int        // used for debug
+	totalEvacuate int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
 	slotLens      [256]int   // The actual length for every slot.
 	slotCap       int        // max number of entry pointers a slot can hold.

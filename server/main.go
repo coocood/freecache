@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+	"runtime/debug"
 )
 
 var (
@@ -337,7 +338,8 @@ func lower(data []byte) {
 }
 
 func main() {
-	runtime.GOMAXPROCS(2)
-	server := NewServer(1024 * 1024)
+	runtime.GOMAXPROCS(runtime.NumCPU()-1)
+	server := NewServer(256 * 1024 * 1024)
+	debug.SetGCPercent(10)
 	server.Start(":7788")
 }
