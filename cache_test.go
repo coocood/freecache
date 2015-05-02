@@ -79,13 +79,11 @@ func TestRingCache(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	hitCount := 0
 	for i := 1; i < n; i += 2 {
 		keyStr := fmt.Sprintf("key%v", i)
 		expectedValStr := strings.Repeat(keyStr, 10)
 		value, err = cache.Get([]byte(keyStr))
 		if err == nil {
-			hitCount++
 			if string(value) != expectedValStr {
 				t.Errorf("value is %v, expected %v", string(value), expectedValStr)
 			}
@@ -93,7 +91,7 @@ func TestRingCache(t *testing.T) {
 	}
 
 	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v\n",
-		float64(hitCount)/float64(n/2), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime())
+		cache.HitRate(), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime())
 }
 
 func BenchmarkCacheSet(b *testing.B) {
