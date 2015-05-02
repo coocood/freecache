@@ -42,8 +42,8 @@ type segment struct {
 	totalTime     int64      // used to calculate least recent used entry.
 	totalEvacuate int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
-	slotLens      [256]int   // The actual length for every slot.
-	slotCap       int        // max number of entry pointers a slot can hold.
+	slotLens      [256]int32 // The actual length for every slot.
+	slotCap       int32      // max number of entry pointers a slot can hold.
 	slotsData     []entryPtr // shared by all 256 slots
 }
 
@@ -119,7 +119,7 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 	slotId := uint8(hashVal >> 8)
 	hash16 := uint16(hashVal >> 16)
-	slotOff := int(slotId) * seg.slotCap
+	slotOff := int32(slotId) * seg.slotCap
 	var slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	idx := entryPtrIdx(slot, hash16)
 	if idx == len(slot) {
@@ -161,7 +161,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 func (seg *segment) del(key []byte, hashVal uint64) (affected bool) {
 	slotId := uint8(hashVal >> 8)
 	hash16 := uint16(hashVal >> 16)
-	slotOff := int(slotId) * seg.slotCap
+	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	idx := entryPtrIdx(slot, hash16)
 	if idx == len(slot) {
@@ -186,7 +186,7 @@ func (seg *segment) del(key []byte, hashVal uint64) (affected bool) {
 func (seg *segment) expand() {
 	newSlotData := make([]entryPtr, seg.slotCap*2*256)
 	for i := 0; i < 256; i++ {
-		off := i * seg.slotCap
+		off := int32(i) * seg.slotCap
 		copy(newSlotData[off*2:], seg.slotsData[off:off+seg.slotLens[i]])
 	}
 	seg.slotCap *= 2
@@ -194,7 +194,7 @@ func (seg *segment) expand() {
 }
 
 func (seg *segment) updateEntryPtr(oldOff, newOff int64, hash16 uint16, slotId uint8) {
-	slotOff := int(slotId) * seg.slotCap
+	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	idx := entryPtrIdx(slot, hash16)
 	ptr := &slot[idx]
@@ -216,7 +216,7 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 	ptr.offset = offset
 	ptr.hash16 = hash16
 	ptr.keyLen = uint16(len(key))
-	slotOff := int(slotId) * seg.slotCap
+	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	idx := entryPtrIdx(slot, hash16)
 	for idx < len(slot) {
@@ -253,7 +253,7 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 }
 
 func (seg *segment) delEntryPtr(slotId uint8, hash16 uint16, offset int64) {
-	slotOff := int(slotId) * seg.slotCap
+	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	idx := entryPtrIdx(slot, hash16)
 	ptr := &slot[idx]

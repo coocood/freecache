@@ -2,11 +2,11 @@ package freecache
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
-	"encoding/binary"
 )
 
 func TestRingCache(t *testing.T) {
@@ -97,7 +97,7 @@ func TestRingCache(t *testing.T) {
 }
 
 func BenchmarkCacheSet(b *testing.B) {
-	cache := NewCache(256*1024*1024)
+	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
@@ -116,7 +116,7 @@ func BenchmarkMapSet(b *testing.B) {
 
 func BenchmarkCacheGet(b *testing.B) {
 	b.StopTimer()
-	cache := NewCache(256*1024*1024)
+	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))

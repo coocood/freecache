@@ -22,6 +22,9 @@ func fnvaHash(data []byte) uint64 {
 }
 
 // The cache size will be set to 512KB at minimum.
+// If the size is set relatively large, you should call
+// `debug.SetGCPercent()`, set it to a much smaller value
+// to limit the memory consumption and GC pause time.
 func NewCache(size int) (cache *Cache) {
 	if size < 512*1024 {
 		size = 512 * 1024
@@ -83,6 +86,7 @@ func (cache *Cache) EntryCount() (entryCount int64) {
 	return
 }
 
+//The average unix timestamp when a entry being accessed.
 func (cache *Cache) AverageAccessTime() int64 {
 	var entryCount, totalTime int64
 	for i := 0; i < 256; i++ {
@@ -109,6 +113,6 @@ func (cache *Cache) HitRate() float64 {
 	if lookupCount == 0 {
 		return 0
 	} else {
-		return float64(cache.HitCount())/float64(lookupCount)
+		return float64(cache.HitCount()) / float64(lookupCount)
 	}
 }
