@@ -4,7 +4,8 @@ Long lived objects in memory introduce expensive GC overhead, the GC latency can
 With FreeCache, you can cache unlimited number of objects in memory without increased GC latency. 
 
 [![Build Status](https://travis-ci.org/coocood/freecache.png?branch=master)](https://travis-ci.org/coocood/freecache)
-[![](http://gocover.io/_badge/github.com/coocood/freecache)](http://gocover.io/github.com/coocood/freecache)
+[![GoCover](http://gocover.io/_badge/github.com/coocood/freecache)](http://gocover.io/github.com/coocood/freecache)
+[![GoDoc](https://godoc.org/github.com/coocood/freecache?status.svg)](https://godoc.org/github.com/coocood/freecache)
 
 ##About GC Pause Issue
 
