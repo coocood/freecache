@@ -86,7 +86,9 @@ func (cache *Cache) EntryCount() (entryCount int64) {
 	return
 }
 
-//The average unix timestamp when a entry being accessed.
+// The average unix timestamp when a entry being accessed.
+// Entries have greater access time will be evacuated when it
+// is about to be overwritten by new value.
 func (cache *Cache) AverageAccessTime() int64 {
 	var entryCount, totalTime int64
 	for i := 0; i < 256; i++ {

@@ -61,8 +61,8 @@ On my laptop, GC pause with FreeCache is under 200us, but with map, it is more t
 * Come with a toy server that supports a few basic Redis commands with pipeline
 
 ##Performance
-Here is the benchmark result compares to build-in map, `Set` performance is about 2x faster than build-in map, `Get` performance is about 1/2x slower than build-in map. Since it is single threaded benchmark, in multi-threaded environment, 
-FreeCache should be many times faster than single lock protected build-in map.
+Here is the benchmark result compares to built-in map, `Set` performance is about 2x faster than built-in map, `Get` performance is about 1/2x slower than built-in map. Since it is single threaded benchmark, in multi-threaded environment, 
+FreeCache should be many times faster than single lock protected built-in map.
 
     BenchmarkCacheSet        3000000               446 ns/op
     BenchmarkMapSet          2000000               861 ns/op
@@ -102,6 +102,10 @@ Each segment has only two pointers, one is the ring buffer that stores keys and 
 the other one is the index slice which used to lookup for an entry.
 Each segment has its own lock, so it supports high concurrent access.
 
+##TODO
+* Support in place update to improve cache hit rate.
+* Support dump to file and load from file.
+* Support resize cache size at runtime.
+
 ##License
 The MIT License
-
