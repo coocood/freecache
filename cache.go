@@ -93,7 +93,7 @@ func (cache *Cache) AverageAccessTime() int64 {
 	var entryCount, totalTime int64
 	for i := 0; i < 256; i++ {
 		totalTime += atomic.LoadInt64(&cache.segments[i].totalTime)
-		entryCount += atomic.LoadInt64(&cache.segments[i].entryCount)
+		entryCount += atomic.LoadInt64(&cache.segments[i].totalCount)
 	}
 	if entryCount == 0 {
 		return 0

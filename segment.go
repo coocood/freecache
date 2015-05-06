@@ -39,6 +39,7 @@ type segment struct {
 	rb            RingBuf // ring buffer that stores data
 	segId         int
 	entryCount    int64
+	totalCount    int64      // number of entries including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
 	totalEvacuate int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
@@ -89,14 +90,18 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		oldEntryLen := int64(oldHdr.keyLen) + int64(oldHdr.valLen) + ENTRY_HDR_SIZE
 		if oldHdr.deleted {
 			consecutiveEvacuate = 0
+			seg.totalTime -= int64(oldHdr.accessTime)
+			seg.totalCount--
 			seg.vacuumLen += oldEntryLen
 			continue
 		}
 		expired := oldHdr.expireAt != 0 && oldHdr.expireAt < now
-		leastRecentUsed := int64(oldHdr.accessTime)*seg.entryCount <= seg.totalTime
+		leastRecentUsed := int64(oldHdr.accessTime)*seg.totalCount <= seg.totalTime
 		if expired || leastRecentUsed || consecutiveEvacuate > 5 {
 			seg.delEntryPtr(oldHdr.slotId, oldHdr.hash16, oldOff)
 			consecutiveEvacuate = 0
+			seg.totalTime -= int64(oldHdr.accessTime)
+			seg.totalCount--
 			seg.vacuumLen += oldEntryLen
 		} else {
 			// evacuate an old entry that has been accessed recently for better cache hit rate.
@@ -111,8 +116,10 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 	seg.rb.Write(hdrBuf[:])
 	seg.rb.Write(key)
 	seg.rb.Write(value)
+	seg.totalTime += int64(now)
+	seg.totalCount++
 	seg.vacuumLen -= entryLen
-	seg.setEntryPtr(key, off, hdr.hash16, hdr.slotId, now)
+	seg.setEntryPtr(key, off, hdr.hash16, hdr.slotId)
 	return
 }
 
@@ -204,14 +211,11 @@ func (seg *segment) updateEntryPtr(oldOff, newOff int64, hash16 uint16, slotId u
 			return
 		}
 		idx++
-		if idx == len(slot) {
-			break
-		}
 		ptr = &slot[idx]
 	}
 }
 
-func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId uint8, accessTime uint32) {
+func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId uint8) {
 	var ptr entryPtr
 	ptr.offset = offset
 	ptr.hash16 = hash16
@@ -232,7 +236,6 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 			oldEntryHdr := (*entryHdr)(unsafe.Pointer(&oldEntryHdrBuf[0]))
 			oldEntryHdr.deleted = true
 			seg.rb.WriteAt(oldEntryHdrBuf[:], oldPtr.offset)
-			seg.totalTime += int64(accessTime - oldEntryHdr.accessTime)
 			// update entry pointer
 			oldPtr.offset = offset
 			return
@@ -245,11 +248,10 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 		slotOff *= 2
 	}
 	seg.slotLens[slotId]++
+	seg.entryCount++
 	slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	copy(slot[idx+1:], slot[idx:])
 	slot[idx] = ptr
-	seg.entryCount++
-	seg.totalTime += int64(accessTime)
 }
 
 func (seg *segment) delEntryPtr(slotId uint8, hash16 uint16, offset int64) {
@@ -267,13 +269,9 @@ func (seg *segment) delEntryPtr(slotId uint8, hash16 uint16, offset int64) {
 			copy(slot[idx:], slot[idx+1:])
 			seg.slotLens[slotId]--
 			seg.entryCount--
-			seg.totalTime -= int64(entryHdr.accessTime)
 			return
 		}
 		idx++
-		if idx == len(slot) {
-			break
-		}
 		ptr = &slot[idx]
 	}
 }

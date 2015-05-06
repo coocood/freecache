@@ -1,7 +1,6 @@
 package freecache
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -11,13 +10,13 @@ func TestRingBuf(t *testing.T) {
 	rb.Write([]byte("fghibbbbc"))
 	rb.Resize(16)
 	off := rb.Evacuate(9, 3)
-	fmt.Println(string(rb.Dump()))
+	t.Log(string(rb.Dump()))
 	if off != rb.End()-3 {
 		t.Log(string(rb.Dump()), rb.End())
 		t.Fatalf("off got %v", off)
 	}
 	off = rb.Evacuate(15, 5)
-	fmt.Println(string(rb.Dump()))
+	t.Log(string(rb.Dump()))
 	if off != rb.End()-5 {
 		t.Fatalf("off got %v", off)
 	}
