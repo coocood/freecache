@@ -39,7 +39,7 @@ type segment struct {
 	rb            RingBuf // ring buffer that stores data
 	segId         int
 	entryCount    int64
-	totalCount    int64      // number of entries including deleted entries.
+	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
 	totalEvacuate int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
