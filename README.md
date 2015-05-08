@@ -12,45 +12,47 @@ With FreeCache, you can cache unlimited number of objects in memory without incr
 Here is the demo code for the GC pause issue, you can run it yourself.
 On my laptop, GC pause with FreeCache is under 200us, but with map, it is more than 300ms.
 
-    package main
-    
-    import (
-    	"fmt"
-    	"github.com/coocood/freecache"
-    	"runtime"
-    	"runtime/debug"
-    	"time"
-    )
-    
-    var mapCache map[string][]byte
-    
-    func GCPause() time.Duration {
-    	runtime.GC()
-    	var stats debug.GCStats
-    	debug.ReadGCStats(&stats)
-    	return stats.Pause[0]
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/coocood/freecache"
+    "runtime"
+    "runtime/debug"
+    "time"
+)
+
+var mapCache map[string][]byte
+
+func GCPause() time.Duration {
+    runtime.GC()
+    var stats debug.GCStats
+    debug.ReadGCStats(&stats)
+    return stats.Pause[0]
+}
+
+func main() {
+    n := 3000 * 1000
+    freeCache := freecache.NewCache(512 * 1024 * 1024)
+    debug.SetGCPercent(10)
+    for i := 0; i < n; i++ {
+        key := fmt.Sprintf("key%v", i)
+        val := make([]byte, 10)
+        freeCache.Set([]byte(key), val, 0)
     }
-    
-    func main() {
-    	n := 3000 * 1000
-    	freeCache := freecache.NewCache(512 * 1024 * 1024)
-    	debug.SetGCPercent(10)
-    	for i := 0; i < n; i++ {
-    		key := fmt.Sprintf("key%v", i)
-    		val := make([]byte, 10)
-    		freeCache.Set([]byte(key), val, 0)
-    	}
-    	fmt.Println("GC pause with free cache:", GCPause())
-        freeCache = nil
-    	mapCache = make(map[string][]byte)
-    	for i := 0; i < n; i++ {
-    		key := fmt.Sprintf("key%v", i)
-    		val := make([]byte, 10)
-    		mapCache[key] = val
-    	}
-    	fmt.Println("GC pause with map cache:", GCPause())
+    fmt.Println("GC pause with free cache:", GCPause())
+    freeCache = nil
+    mapCache = make(map[string][]byte)
+    for i := 0; i < n; i++ {
+        key := fmt.Sprintf("key%v", i)
+        val := make([]byte, 10)
+        mapCache[key] = val
     }
-    
+    fmt.Println("GC pause with map cache:", GCPause())
+}
+```
+
 ##Features
 * Store hundreds of millions of entries
 * Zero GC overhead
@@ -71,24 +73,25 @@ FreeCache should be many times faster than single lock protected built-in map.
     BenchmarkMapGet         10000000               212 ns/op
 
 ##Example Usage
+```go
+cacheSize := 100 * 1024 * 1024
+cache := freecache.NewCache(cacheSize)
+debug.SetGCPercent(20)
+key := []byte("abc")
+val := []byte("def")
+expire := 60 // expire in 60 seconds
+cache.Set(key, val, expire)
+got, err := cache.Get(key)
+if err != nil {
+    fmt.Println(err)
+} else {
+    fmt.Println(string(got))
+}
+affected := cache.Del(key)
+fmt.Println("deleted key ", affected)
+fmt.Println("entry count ", cache.EntryCount())
+```
 
-    cacheSize := 100*1024*1024
-    cache := freecache.NewCache(cacheSize)
-    debug.SetGCPercent(20)
-    key := []byte("abc")
-    val := []byte("def")
-    expire := 60 // expire in 60 seconds
-    cache.Set(key, val, expire)
-    got, err := cache.Get(key)
-    if err != nil {
-        fmt.Println(err)
-    } else {
-        fmt.Println(string(got))
-    }
-    affected := cache.Del(key)
-    fmt.Println("deleted key ", affected)
-    fmt.Println("entry count ", cache.EntryCount())
-    
 ##Notice
 * Recommended Go version is 1.4.
 * Memory is preallocated. 
