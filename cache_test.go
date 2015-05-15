@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestRingCache(t *testing.T) {
+func TestFreeCache(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
 	val := []byte("efghijkl")
@@ -57,6 +57,7 @@ func TestRingCache(t *testing.T) {
 	if err != ErrLargeEntry {
 		t.Error("err should be ErrLargeEntry")
 	}
+	cache.Clear()
 	n := 5000
 	for i := 0; i < n; i++ {
 		keyStr := fmt.Sprintf("key%v", i)
