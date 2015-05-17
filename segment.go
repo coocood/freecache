@@ -128,40 +128,28 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 	hash16 := uint16(hashVal >> 16)
 	slotOff := int32(slotId) * seg.slotCap
 	var slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx := entryPtrIdx(slot, hash16)
-	if idx == len(slot) {
+	idx, match := seg.lookup(slot, hash16, key)
+	if !match {
 		err = ErrNotFound
 		return
 	}
 	ptr := &slot[idx]
-	for ptr.hash16 == hash16 {
-		sameKey := int(ptr.keyLen) == len(key) && seg.rb.EqualAt(key, ptr.offset+ENTRY_HDR_SIZE)
-		if sameKey {
-			now := uint32(time.Now().Unix())
+	now := uint32(time.Now().Unix())
 
-			var hdrBuf [ENTRY_HDR_SIZE]byte
-			seg.rb.ReadAt(hdrBuf[:], ptr.offset)
-			hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
+	var hdrBuf [ENTRY_HDR_SIZE]byte
+	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
+	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
 
-			if hdr.expireAt != 0 && hdr.expireAt <= now {
-				seg.delEntryPtr(slotId, hash16, ptr.offset)
-				err = ErrNotFound
-				return
-			}
-			seg.totalTime += int64(now - hdr.accessTime)
-			hdr.accessTime = now
-			seg.rb.WriteAt(hdrBuf[:], ptr.offset)
-			value = make([]byte, hdr.valLen)
-			seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
-			return
-		}
-		idx++
-		if idx == len(slot) {
-			break
-		}
-		ptr = &slot[idx]
+	if hdr.expireAt != 0 && hdr.expireAt <= now {
+		seg.delEntryPtr(slotId, hash16, ptr.offset)
+		err = ErrNotFound
+		return
 	}
-	err = ErrNotFound
+	seg.totalTime += int64(now - hdr.accessTime)
+	hdr.accessTime = now
+	seg.rb.WriteAt(hdrBuf[:], ptr.offset)
+	value = make([]byte, hdr.valLen)
+	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 	return
 }
 
@@ -170,24 +158,13 @@ func (seg *segment) del(key []byte, hashVal uint64) (affected bool) {
 	hash16 := uint16(hashVal >> 16)
 	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx := entryPtrIdx(slot, hash16)
-	if idx == len(slot) {
+	idx, match := seg.lookup(slot, hash16, key)
+	if !match {
 		return false
 	}
 	ptr := &slot[idx]
-	for ptr.hash16 == hash16 {
-		sameKey := int(ptr.keyLen) == len(key) && seg.rb.EqualAt(key, ptr.offset+ENTRY_HDR_SIZE)
-		if sameKey {
-			seg.delEntryPtr(slotId, hash16, ptr.offset)
-			return true
-		}
-		idx++
-		if idx == len(slot) {
-			break
-		}
-		ptr = &slot[idx]
-	}
-	return false
+	seg.delEntryPtr(slotId, hash16, ptr.offset)
+	return true
 }
 
 func (seg *segment) expand() {
@@ -203,16 +180,12 @@ func (seg *segment) expand() {
 func (seg *segment) updateEntryPtr(oldOff, newOff int64, hash16 uint16, slotId uint8) {
 	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx := entryPtrIdx(slot, hash16)
-	ptr := &slot[idx]
-	for ptr.hash16 == hash16 {
-		if ptr.offset == oldOff {
-			ptr.offset = newOff
-			return
-		}
-		idx++
-		ptr = &slot[idx]
+	idx, match := seg.lookupByOff(slot, hash16, oldOff)
+	if !match {
+		return
 	}
+	ptr := &slot[idx]
+	ptr.offset = newOff
 }
 
 func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId uint8) {
@@ -222,25 +195,17 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 	ptr.keyLen = uint16(len(key))
 	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx := entryPtrIdx(slot, hash16)
-	for idx < len(slot) {
+	idx, match := seg.lookupByOff(slot, hash16, offset)
+	if match {
 		oldPtr := &slot[idx]
-		if oldPtr.hash16 != hash16 {
-			break
-		}
-		sameKey := int(oldPtr.keyLen) == len(key) && seg.rb.EqualAt(key, oldPtr.offset+ENTRY_HDR_SIZE)
-		if sameKey {
-			// delete the old entry in ring buffer.
-			var oldEntryHdrBuf [ENTRY_HDR_SIZE]byte
-			seg.rb.ReadAt(oldEntryHdrBuf[:], oldPtr.offset)
-			oldEntryHdr := (*entryHdr)(unsafe.Pointer(&oldEntryHdrBuf[0]))
-			oldEntryHdr.deleted = true
-			seg.rb.WriteAt(oldEntryHdrBuf[:], oldPtr.offset)
-			// update entry pointer
-			oldPtr.offset = offset
-			return
-		}
-		idx++
+		var oldEntryHdrBuf [ENTRY_HDR_SIZE]byte
+		seg.rb.ReadAt(oldEntryHdrBuf[:], oldPtr.offset)
+		oldEntryHdr := (*entryHdr)(unsafe.Pointer(&oldEntryHdrBuf[0]))
+		oldEntryHdr.deleted = true
+		seg.rb.WriteAt(oldEntryHdrBuf[:], oldPtr.offset)
+		// update entry pointer
+		oldPtr.offset = offset
+		return
 	}
 	// insert new entry
 	if len(slot) == cap(slot) {
@@ -257,23 +222,18 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 func (seg *segment) delEntryPtr(slotId uint8, hash16 uint16, offset int64) {
 	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx := entryPtrIdx(slot, hash16)
-	ptr := &slot[idx]
-	for ptr.hash16 == hash16 {
-		if ptr.offset == offset {
-			var entryHdrBuf [ENTRY_HDR_SIZE]byte
-			seg.rb.ReadAt(entryHdrBuf[:], offset)
-			entryHdr := (*entryHdr)(unsafe.Pointer(&entryHdrBuf[0]))
-			entryHdr.deleted = true
-			seg.rb.WriteAt(entryHdrBuf[:], offset)
-			copy(slot[idx:], slot[idx+1:])
-			seg.slotLens[slotId]--
-			seg.entryCount--
-			return
-		}
-		idx++
-		ptr = &slot[idx]
+	idx, match := seg.lookupByOff(slot, hash16, offset)
+	if !match {
+		return
 	}
+	var entryHdrBuf [ENTRY_HDR_SIZE]byte
+	seg.rb.ReadAt(entryHdrBuf[:], offset)
+	entryHdr := (*entryHdr)(unsafe.Pointer(&entryHdrBuf[0]))
+	entryHdr.deleted = true
+	seg.rb.WriteAt(entryHdrBuf[:], offset)
+	copy(slot[idx:], slot[idx+1:])
+	seg.slotLens[slotId]--
+	seg.entryCount--
 }
 
 func entryPtrIdx(slot []entryPtr, hash16 uint16) (idx int) {
@@ -286,6 +246,38 @@ func entryPtrIdx(slot []entryPtr, hash16 uint16) (idx int) {
 		} else {
 			high = mid
 		}
+	}
+	return
+}
+
+func (seg *segment) lookup(slot []entryPtr, hash16 uint16, key []byte) (idx int, match bool) {
+	idx = entryPtrIdx(slot, hash16)
+	for idx < len(slot) {
+		ptr := &slot[idx]
+		if ptr.hash16 != hash16 {
+			break
+		}
+		match = int(ptr.keyLen) == len(key) && seg.rb.EqualAt(key, ptr.offset+ENTRY_HDR_SIZE)
+		if match {
+			return
+		}
+		idx++
+	}
+	return
+}
+
+func (seg *segment) lookupByOff(slot []entryPtr, hash16 uint16, offset int64) (idx int, match bool) {
+	idx = entryPtrIdx(slot, hash16)
+	for idx < len(slot) {
+		ptr := &slot[idx]
+		if ptr.hash16 != hash16 {
+			break
+		}
+		match = ptr.offset == offset
+		if match {
+			return
+		}
+		idx++
 	}
 	return
 }
