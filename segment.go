@@ -195,7 +195,7 @@ func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId 
 	ptr.keyLen = uint16(len(key))
 	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx, match := seg.lookupByOff(slot, hash16, offset)
+	idx, match := seg.lookup(slot, hash16, key)
 	if match {
 		oldPtr := &slot[idx]
 		var oldEntryHdrBuf [ENTRY_HDR_SIZE]byte

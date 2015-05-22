@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"time"
 	"runtime/debug"
+	_ "net/http/pprof"
+	"net/http"
 )
 
 var (
@@ -57,15 +59,11 @@ type Session struct {
 }
 
 type Server struct {
-	closeChan   chan bool
-	requestChan chan struct{}
 	cache       *freecache.Cache
 }
 
 func NewServer(cacheSize int) (server *Server) {
 	server = new(Server)
-	server.closeChan = make(chan bool)
-	server.requestChan = make(chan struct{}, 1000)
 	server.cache = freecache.NewCache(cacheSize)
 	return
 }
@@ -78,25 +76,7 @@ func (server *Server) Start(addr string) error {
 	}
 	defer l.Close()
 	log.Println("Listening on port", addr)
-	var waitTime time.Duration
 	for {
-		select {
-		case <-server.closeChan:
-			if len(server.requestChan) == 0 {
-				log.Println("all on-going request has been finished. exit.")
-				return nil
-			} else {
-				log.Println("Waiting for on-going request to be finished.")
-				time.Sleep(time.Second)
-				waitTime += time.Second
-				if waitTime >= time.Second*5 {
-					log.Println("Waited for 5 seconeds, force quit.")
-					return nil
-				}
-				continue
-			}
-		default:
-		}
 		tcpListener := l.(*net.TCPListener)
 		tcpListener.SetDeadline(time.Now().Add(time.Second))
 		conn, err := l.Accept()
@@ -195,19 +175,12 @@ func (down *Session) readLoop() {
 	var req = new(Request)
 	req.buf = new(bytes.Buffer)
 	for {
-		select {
-		case <-down.server.closeChan:
-			close(down.replyChan)
-			return
-		default:
-		}
 		req.Reset()
 		err := down.server.ReadClient(down.reader, req)
 		if err != nil {
 			close(down.replyChan)
 			return
 		}
-		down.server.requestChan <- struct{}{}
 		reply := new(bytes.Buffer)
 		if len(req.args) == 4 && bytes.Equal(req.args[0], SETEX) {
 			expire, err := btoi(req.args[2])
@@ -282,9 +255,6 @@ func (down *Session) writeLoop() {
 				buffer.Write(reply.Bytes())
 			}
 			_, err := down.conn.Write(buffer.Bytes())
-			for i := 0; i < len(replies); i++ {
-				<-down.server.requestChan
-			}
 			if err != nil {
 				down.conn.Close()
 				return
@@ -341,5 +311,8 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU()-1)
 	server := NewServer(256 * 1024 * 1024)
 	debug.SetGCPercent(10)
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	server.Start(":7788")
 }
