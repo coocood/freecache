@@ -7,7 +7,7 @@ import (
 )
 
 const HASH_ENTRY_SIZE = 16
-const ENTRY_HDR_SIZE = 20
+const ENTRY_HDR_SIZE = 24
 
 var ErrLargeKey = errors.New("The key is larger than 65535")
 var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
@@ -28,6 +28,7 @@ type entryHdr struct {
 	keyLen     uint16
 	hash16     uint16
 	valLen     uint32
+	valCap     uint32
 	deleted    bool
 	slotId     uint8
 	reserved   uint16
@@ -42,6 +43,7 @@ type segment struct {
 	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
 	totalEvacuate int64      // used for debug
+	overwrites    int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
 	slotLens      [256]int32 // The actual length for every slot.
 	slotCap       int32      // max number of entry pointers a slot can hold.
@@ -61,8 +63,8 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 	if len(key) > 65535 {
 		return ErrLargeKey
 	}
-	entryLen := int64(len(key) + len(value) + ENTRY_HDR_SIZE)
-	if entryLen > seg.rb.Size()/4 {
+	maxKeyValLen := len(seg.rb.data)/4 - ENTRY_HDR_SIZE
+	if len(key)+len(value) > maxKeyValLen {
 		// Do not accept large entry.
 		return ErrLargeEntry
 	}
@@ -72,22 +74,81 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		expireAt = now + uint32(expireSeconds)
 	}
 
+	slotId := uint8(hashVal >> 8)
+	hash16 := uint16(hashVal >> 16)
+
 	var hdrBuf [ENTRY_HDR_SIZE]byte
 	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
-	hdr.accessTime = now
-	hdr.expireAt = expireAt
-	hdr.keyLen = uint16(len(key))
-	hdr.hash16 = uint16(hashVal >> 16)
-	hdr.valLen = uint32(len(value))
-	hdr.slotId = uint8(hashVal >> 8)
 
+	slotOff := int32(slotId) * seg.slotCap
+	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
+	idx, match := seg.lookup(slot, hash16, key)
+	if match {
+		matchedPtr := &slot[idx]
+		seg.rb.ReadAt(hdrBuf[:], matchedPtr.offset)
+		hdr.slotId = slotId
+		hdr.hash16 = hash16
+		hdr.keyLen = uint16(len(key))
+		hdr.accessTime = now
+		hdr.expireAt = expireAt
+		hdr.valLen = uint32(len(value))
+		if hdr.valCap >= hdr.valLen {
+			//in place overwrite
+			seg.totalTime += int64(hdr.accessTime) - int64(now)
+			seg.rb.WriteAt(hdrBuf[:], matchedPtr.offset)
+			seg.rb.WriteAt(value, matchedPtr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
+			seg.overwrites++
+			return
+		}
+		// increase capacity and limit entry len.
+		for hdr.valCap < hdr.valLen {
+			hdr.valCap *= 2
+		}
+		if hdr.valCap > uint32(maxKeyValLen-len(key)) {
+			hdr.valCap = uint32(maxKeyValLen - len(key))
+		}
+	} else {
+		hdr.slotId = slotId
+		hdr.hash16 = hash16
+		hdr.keyLen = uint16(len(key))
+		hdr.accessTime = now
+		hdr.expireAt = expireAt
+		hdr.valLen = uint32(len(value))
+		hdr.valCap = uint32(len(value))
+	}
+
+	entryLen := ENTRY_HDR_SIZE + int64(len(key)) + int64(hdr.valCap)
+	slotModified := seg.evacuate(entryLen, slotId, now)
+	if slotModified {
+		// the slot has been modified during evacuation, we need to looked up for the 'idx' again.
+		// otherwise there would be index out of bound error.
+		slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
+		idx, match = seg.lookup(slot, hash16, key)
+	}
+	newOff := seg.rb.End()
+	if match {
+		seg.updateEntryPtr(slotId, hash16, slot[idx].offset, newOff)
+	} else {
+		seg.insertEntryPtr(slotId, hash16, newOff, idx, hdr.keyLen)
+	}
+	seg.rb.Write(hdrBuf[:])
+	seg.rb.Write(key)
+	seg.rb.Write(value)
+	seg.rb.Skip(int64(hdr.valCap - hdr.valLen))
+	seg.totalTime += int64(now)
+	seg.totalCount++
+	seg.vacuumLen -= entryLen
+	return
+}
+
+func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModified bool) {
 	var oldHdrBuf [ENTRY_HDR_SIZE]byte
 	consecutiveEvacuate := 0
 	for seg.vacuumLen < entryLen {
 		oldOff := seg.rb.End() + seg.vacuumLen - seg.rb.Size()
 		seg.rb.ReadAt(oldHdrBuf[:], oldOff)
 		oldHdr := (*entryHdr)(unsafe.Pointer(&oldHdrBuf[0]))
-		oldEntryLen := int64(oldHdr.keyLen) + int64(oldHdr.valLen) + ENTRY_HDR_SIZE
+		oldEntryLen := ENTRY_HDR_SIZE + int64(oldHdr.keyLen) + int64(oldHdr.valCap)
 		if oldHdr.deleted {
 			consecutiveEvacuate = 0
 			seg.totalTime -= int64(oldHdr.accessTime)
@@ -99,6 +160,9 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		leastRecentUsed := int64(oldHdr.accessTime)*seg.totalCount <= seg.totalTime
 		if expired || leastRecentUsed || consecutiveEvacuate > 5 {
 			seg.delEntryPtr(oldHdr.slotId, oldHdr.hash16, oldOff)
+			if oldHdr.slotId == slotId {
+				slotModified = true
+			}
 			consecutiveEvacuate = 0
 			seg.totalTime -= int64(oldHdr.accessTime)
 			seg.totalCount--
@@ -106,20 +170,11 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		} else {
 			// evacuate an old entry that has been accessed recently for better cache hit rate.
 			newOff := seg.rb.Evacuate(oldOff, int(oldEntryLen))
-			seg.updateEntryPtr(oldOff, newOff, oldHdr.hash16, oldHdr.slotId)
+			seg.updateEntryPtr(oldHdr.slotId, oldHdr.hash16, oldOff, newOff)
 			consecutiveEvacuate++
 			seg.totalEvacuate++
 		}
 	}
-
-	off := seg.rb.End()
-	seg.rb.Write(hdrBuf[:])
-	seg.rb.Write(key)
-	seg.rb.Write(value)
-	seg.totalTime += int64(now)
-	seg.totalCount++
-	seg.vacuumLen -= entryLen
-	seg.setEntryPtr(key, off, hdr.hash16, hdr.slotId)
 	return
 }
 
@@ -149,6 +204,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 	hdr.accessTime = now
 	seg.rb.WriteAt(hdrBuf[:], ptr.offset)
 	value = make([]byte, hdr.valLen)
+
 	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 	return
 }
@@ -177,7 +233,7 @@ func (seg *segment) expand() {
 	seg.slotsData = newSlotData
 }
 
-func (seg *segment) updateEntryPtr(oldOff, newOff int64, hash16 uint16, slotId uint8) {
+func (seg *segment) updateEntryPtr(slotId uint8, hash16 uint16, oldOff, newOff int64) {
 	slotOff := int32(slotId) * seg.slotCap
 	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	idx, match := seg.lookupByOff(slot, hash16, oldOff)
@@ -188,35 +244,19 @@ func (seg *segment) updateEntryPtr(oldOff, newOff int64, hash16 uint16, slotId u
 	ptr.offset = newOff
 }
 
-func (seg *segment) setEntryPtr(key []byte, offset int64, hash16 uint16, slotId uint8) {
-	var ptr entryPtr
-	ptr.offset = offset
-	ptr.hash16 = hash16
-	ptr.keyLen = uint16(len(key))
+func (seg *segment) insertEntryPtr(slotId uint8, hash16 uint16, offset int64, idx int, keyLen uint16) {
 	slotOff := int32(slotId) * seg.slotCap
-	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
-	idx, match := seg.lookup(slot, hash16, key)
-	if match {
-		oldPtr := &slot[idx]
-		var oldEntryHdrBuf [ENTRY_HDR_SIZE]byte
-		seg.rb.ReadAt(oldEntryHdrBuf[:], oldPtr.offset)
-		oldEntryHdr := (*entryHdr)(unsafe.Pointer(&oldEntryHdrBuf[0]))
-		oldEntryHdr.deleted = true
-		seg.rb.WriteAt(oldEntryHdrBuf[:], oldPtr.offset)
-		// update entry pointer
-		oldPtr.offset = offset
-		return
-	}
-	// insert new entry
-	if len(slot) == cap(slot) {
+	if seg.slotLens[slotId] == seg.slotCap {
 		seg.expand()
 		slotOff *= 2
 	}
 	seg.slotLens[slotId]++
 	seg.entryCount++
-	slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
+	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 	copy(slot[idx+1:], slot[idx:])
-	slot[idx] = ptr
+	slot[idx].offset = offset
+	slot[idx].hash16 = hash16
+	slot[idx].keyLen = keyLen
 }
 
 func (seg *segment) delEntryPtr(slotId uint8, hash16 uint16, offset int64) {

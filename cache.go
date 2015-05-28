@@ -119,6 +119,13 @@ func (cache *Cache) HitRate() float64 {
 	}
 }
 
+func (cache *Cache) OverwriteCount() (overwriteCount int64) {
+	for i := 0; i < 256; i++ {
+		overwriteCount += atomic.LoadInt64(&cache.segments[i].overwrites)
+	}
+	return
+}
+
 func (cache *Cache) Clear() {
 	for i := 0; i < 256; i++ {
 		cache.locks[i].Lock()

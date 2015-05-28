@@ -107,7 +107,6 @@ the other one is the index slice which used to lookup for an entry.
 Each segment has its own lock, so it supports high concurrent access.
 
 ##TODO
-* Support in place update to improve cache hit rate.
 * Support dump to file and load from file.
 * Support resize cache size at runtime.
 

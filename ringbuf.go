@@ -230,3 +230,14 @@ func (rb *RingBuf) Resize(newSize int) {
 	rb.data = newData
 	rb.index = 0
 }
+
+func (rb *RingBuf) Skip(length int64) {
+	rb.end += length
+	rb.index += int(length)
+	for rb.index >= len(rb.data) {
+		rb.index -= len(rb.data)
+	}
+	if int(rb.end-rb.begin) > len(rb.data) {
+		rb.begin = rb.end - int64(len(rb.data))
+	}
+}
