@@ -87,7 +87,9 @@ func TestFreeCache(t *testing.T) {
 func TestOverwrite(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
-	val := []byte("efgh")
+	var val []byte
+	cache.Set(key, val, 0)
+	val = []byte("efgh")
 	cache.Set(key, val, 0)
 	val = append(val, 'i')
 	cache.Set(key, val, 0)

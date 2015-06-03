@@ -115,6 +115,9 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		hdr.expireAt = expireAt
 		hdr.valLen = uint32(len(value))
 		hdr.valCap = uint32(len(value))
+		if hdr.valCap == 0 { // avoid infinite loop when increasing capacity.
+			hdr.valCap = 1
+		}
 	}
 
 	entryLen := ENTRY_HDR_SIZE + int64(len(key)) + int64(hdr.valCap)
