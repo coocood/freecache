@@ -1,8 +1,10 @@
 package freecache
 
 import (
+	"crypto/md5"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 )
 
 type Cache struct {
@@ -12,13 +14,9 @@ type Cache struct {
 	missCount int64
 }
 
-func fnvaHash(data []byte) uint64 {
-	var hash uint64 = 14695981039346656037
-	for _, c := range data {
-		hash ^= uint64(c)
-		hash *= 1099511628211
-	}
-	return hash
+func hashFunc(data []byte) uint64 {
+	sum := md5.Sum(data)
+	return *(*uint64)(unsafe.Pointer(&sum[0]))
 }
 
 // The cache size will be set to 512KB at minimum.
@@ -40,7 +38,7 @@ func NewCache(size int) (cache *Cache) {
 // the entry will not be written to the cache. expireSeconds <= 0 means no expire,
 // but it can be evicted when cache is full.
 func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
-	hashVal := fnvaHash(key)
+	hashVal := hashFunc(key)
 	segId := hashVal & 255
 	cache.locks[segId].Lock()
 	err = cache.segments[segId].set(key, value, hashVal, expireSeconds)
@@ -50,7 +48,7 @@ func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 
 // Get the value or not found error.
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
-	hashVal := fnvaHash(key)
+	hashVal := hashFunc(key)
 	segId := hashVal & 255
 	cache.locks[segId].Lock()
 	value, err = cache.segments[segId].get(key, hashVal)
@@ -64,7 +62,7 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 }
 
 func (cache *Cache) Del(key []byte) (affected bool) {
-	hashVal := fnvaHash(key)
+	hashVal := hashFunc(key)
 	segId := hashVal & 255
 	cache.locks[segId].Lock()
 	affected = cache.segments[segId].del(key, hashVal)
