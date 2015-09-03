@@ -2,6 +2,7 @@ package freecache
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"strings"
@@ -234,5 +235,15 @@ func BenchmarkMapGet(b *testing.B) {
 		if m[string(key[:])] != nil {
 			hitCount++
 		}
+	}
+}
+
+func BenchmarkHashFunc(b *testing.B) {
+	key := make([]byte, 8)
+	rand.Read(key)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		hashFunc(key)
 	}
 }

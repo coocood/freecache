@@ -1,10 +1,10 @@
 package freecache
 
 import (
-	"crypto/md5"
 	"sync"
 	"sync/atomic"
-	"unsafe"
+
+	"github.com/spaolacci/murmur3"
 )
 
 type Cache struct {
@@ -15,8 +15,7 @@ type Cache struct {
 }
 
 func hashFunc(data []byte) uint64 {
-	sum := md5.Sum(data)
-	return *(*uint64)(unsafe.Pointer(&sum[0]))
+	return murmur3.Sum64(data)
 }
 
 // The cache size will be set to 512KB at minimum.
