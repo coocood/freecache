@@ -43,6 +43,7 @@ type segment struct {
 	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
 	totalEvacuate int64      // used for debug
+	totalExpired  int64      // used for debug
 	overwrites    int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
 	slotLens      [256]int32 // The actual length for every slot.
@@ -170,6 +171,9 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 			seg.totalTime -= int64(oldHdr.accessTime)
 			seg.totalCount--
 			seg.vacuumLen += oldEntryLen
+			if expired {
+				seg.totalExpired++
+			}
 		} else {
 			// evacuate an old entry that has been accessed recently for better cache hit rate.
 			newOff := seg.rb.Evacuate(oldOff, int(oldEntryLen))
@@ -200,6 +204,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 
 	if hdr.expireAt != 0 && hdr.expireAt <= now {
 		seg.delEntryPtr(slotId, hash16, ptr.offset)
+		seg.totalExpired++
 		err = ErrNotFound
 		return
 	}

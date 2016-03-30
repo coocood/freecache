@@ -76,6 +76,13 @@ func (cache *Cache) EvacuateCount() (count int64) {
 	return
 }
 
+func (cache *Cache) ExpiredCount() (count int64) {
+	for i := 0; i < 256; i++ {
+		count += atomic.LoadInt64(&cache.segments[i].totalExpired)
+	}
+	return
+}
+
 func (cache *Cache) EntryCount() (entryCount int64) {
 	for i := 0; i < 256; i++ {
 		entryCount += atomic.LoadInt64(&cache.segments[i].entryCount)
