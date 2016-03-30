@@ -81,8 +81,8 @@ func TestFreeCache(t *testing.T) {
 		}
 	}
 
-	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v\n",
-		cache.HitRate(), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime())
+	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v, expire count %v\n",
+		cache.HitRate(), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime(), cache.ExpiredCount())
 }
 
 func TestOverwrite(t *testing.T) {
@@ -184,6 +184,33 @@ func TestLargeEntry(t *testing.T) {
 	err = cache.Set(key, val, 0)
 	if err != ErrLargeEntry {
 		t.Error("err should be ErrLargeEntry", err)
+	}
+}
+
+func TestInt64Key(t *testing.T) {
+	cache := NewCache(1024)
+	err := cache.SetInt(1, []byte("abc"), 0)
+	if err != nil {
+		t.Error("err should be nil")
+	}
+	err = cache.SetInt(2, []byte("cde"), 0)
+	if err != nil {
+		t.Error("err should be nil")
+	}
+	val, err := cache.GetInt(1)
+	if err != nil {
+		t.Error("err should be nil")
+	}
+	if !bytes.Equal(val, []byte("abc")) {
+		t.Error("value not equal")
+	}
+	affected := cache.DelInt(1)
+	if !affected {
+		t.Error("del should return affected true")
+	}
+	_, err = cache.GetInt(1)
+	if err != ErrNotFound {
+		t.Error("error should be ErrNotFound after being deleted")
 	}
 }
 

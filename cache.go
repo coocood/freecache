@@ -1,6 +1,7 @@
 package freecache
 
 import (
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 
@@ -67,6 +68,24 @@ func (cache *Cache) Del(key []byte) (affected bool) {
 	affected = cache.segments[segId].del(key, hashVal)
 	cache.locks[segId].Unlock()
 	return
+}
+
+func (cache *Cache) SetInt(key int64, value []byte, expireSeconds int) (err error) {
+	var bKey [8]byte
+	binary.LittleEndian.PutUint64(bKey[:], uint64(key))
+	return cache.Set(bKey[:], value, expireSeconds)
+}
+
+func (cache *Cache) GetInt(key int64) (value []byte, err error) {
+	var bKey [8]byte
+	binary.LittleEndian.PutUint64(bKey[:], uint64(key))
+	return cache.Get(bKey[:])
+}
+
+func (cache *Cache) DelInt(key int64) (affected bool) {
+	var bKey [8]byte
+	binary.LittleEndian.PutUint64(bKey[:], uint64(key))
+	return cache.Del(bKey[:])
 }
 
 func (cache *Cache) EvacuateCount() (count int64) {

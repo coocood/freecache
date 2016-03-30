@@ -1,57 +1,11 @@
-#FreeCache - A cache library for Go with zero GC overhead.
+#FreeCache - A cache library for Go with zero GC overhead and high concurrent performance.
 
-Long lived objects in memory introduce expensive GC overhead, the GC latency can go up to hundreds of milliseconds with just a few millions of live objects. 
-With FreeCache, you can cache unlimited number of objects in memory without increased GC latency. 
+Long lived objects in memory introduce expensive GC overhead, With FreeCache, you can cache unlimited number of objects in memory 
+without increased latency and degraded throughput. 
 
 [![Build Status](https://travis-ci.org/coocood/freecache.png?branch=master)](https://travis-ci.org/coocood/freecache)
 [![GoCover](http://gocover.io/_badge/github.com/coocood/freecache)](http://gocover.io/github.com/coocood/freecache)
 [![GoDoc](https://godoc.org/github.com/coocood/freecache?status.svg)](https://godoc.org/github.com/coocood/freecache)
-
-##About GC Pause Issue
-
-Here is the demo code for the GC pause issue, you can run it yourself.
-On my laptop, GC pause with FreeCache is under 200us, but with map, it is more than 300ms.
-
-```go
-package main
-
-import (
-    "fmt"
-    "github.com/coocood/freecache"
-    "runtime"
-    "runtime/debug"
-    "time"
-)
-
-var mapCache map[string][]byte
-
-func GCPause() time.Duration {
-    runtime.GC()
-    var stats debug.GCStats
-    debug.ReadGCStats(&stats)
-    return stats.Pause[0]
-}
-
-func main() {
-    n := 3000 * 1000
-    freeCache := freecache.NewCache(512 * 1024 * 1024)
-    debug.SetGCPercent(10)
-    for i := 0; i < n; i++ {
-        key := fmt.Sprintf("key%v", i)
-        val := make([]byte, 10)
-        freeCache.Set([]byte(key), val, 0)
-    }
-    fmt.Println("GC pause with free cache:", GCPause())
-    freeCache = nil
-    mapCache = make(map[string][]byte)
-    for i := 0; i < n; i++ {
-        key := fmt.Sprintf("key%v", i)
-        val := make([]byte, 10)
-        mapCache[key] = val
-    }
-    fmt.Println("GC pause with map cache:", GCPause())
-}
-```
 
 ##Features
 * Store hundreds of millions of entries
@@ -93,7 +47,6 @@ fmt.Println("entry count ", cache.EntryCount())
 ```
 
 ##Notice
-* Recommended Go version is 1.4.
 * Memory is preallocated. 
 * If you allocate large amount of memory, you may need to set `debug.SetGCPercent()` 
 to a much lower percentage to get a normal GC frequency.

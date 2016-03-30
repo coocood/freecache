@@ -9,12 +9,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"time"
-	"runtime/debug"
-	_ "net/http/pprof"
-	"net/http"
 )
 
 var (
@@ -59,7 +59,7 @@ type Session struct {
 }
 
 type Server struct {
-	cache       *freecache.Cache
+	cache *freecache.Cache
 }
 
 func NewServer(cacheSize int) (server *Server) {
@@ -308,7 +308,7 @@ func lower(data []byte) {
 }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU()-1)
+	runtime.GOMAXPROCS(runtime.NumCPU() - 1)
 	server := NewServer(256 * 1024 * 1024)
 	debug.SetGCPercent(10)
 	go func() {
