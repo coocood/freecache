@@ -83,6 +83,10 @@ func TestFreeCache(t *testing.T) {
 
 	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v, expire count %v\n",
 		cache.HitRate(), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime(), cache.ExpiredCount())
+
+	cache.ResetStatistics()
+	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v, expire count %v\n",
+		cache.HitRate(), cache.EvacuateCount(), cache.EntryCount(), cache.AverageAccessTime(), cache.ExpiredCount())
 }
 
 func TestOverwrite(t *testing.T) {
@@ -140,6 +144,11 @@ func TestExpire(t *testing.T) {
 	if err == nil {
 		t.Fatal("key should be expired", string(val))
 	}
+
+	cache.ResetStatistics()
+	if cache.ExpiredCount() != 0 {
+		t.Error("expired count should be zero.")
+	}
 }
 
 func TestLargeEntry(t *testing.T) {
@@ -184,6 +193,11 @@ func TestLargeEntry(t *testing.T) {
 	err = cache.Set(key, val, 0)
 	if err != ErrLargeEntry {
 		t.Error("err should be ErrLargeEntry", err)
+	}
+
+	cache.ResetStatistics()
+	if cache.OverwriteCount() != 0 {
+		t.Error("over write count should be zero.")
 	}
 }
 
