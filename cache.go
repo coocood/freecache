@@ -159,3 +159,13 @@ func (cache *Cache) Clear() {
 	atomic.StoreInt64(&cache.hitCount, 0)
 	atomic.StoreInt64(&cache.missCount, 0)
 }
+
+func (cache *Cache) ResetStatistics() {
+	atomic.StoreInt64(&cache.hitCount, 0)
+	atomic.StoreInt64(&cache.missCount, 0)
+	for i := 0; i < 256; i++ {
+		cache.locks[i].Lock()
+		cache.segments[i].resetStatistics()
+		cache.locks[i].Unlock()
+	}
+}

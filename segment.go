@@ -329,3 +329,9 @@ func (seg *segment) lookupByOff(slot []entryPtr, hash16 uint16, offset int64) (i
 	}
 	return
 }
+
+func (seg *segment) resetStatistics() {
+	seg.totalEvacuate = 0
+	seg.totalExpired = 0
+	seg.overwrites = 0
+}
