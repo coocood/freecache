@@ -5,7 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"github.com/kmiku7/freecache"
+	"github.com/coocood/freecache"
 	"io"
 	"log"
 	"net"
