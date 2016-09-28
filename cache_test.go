@@ -151,6 +151,64 @@ func TestExpire(t *testing.T) {
 	}
 }
 
+func TestAverageAccessTimeWhenUpdateInplace(t *testing.T) {
+	cache := NewCache(1024)
+
+	key := []byte("test-key")
+	valueLong := []byte("very-long-de-value")
+	valueShort := []byte("short")
+
+	err := cache.Set(key, valueLong, 0)
+	if err != nil {
+		t.Fatal("err should be nil")
+	}
+	now := time.Now().Unix()
+	aat := cache.AverageAccessTime()
+	if (now - aat) > 1 {
+		t.Fatalf("track average access time error, now:%d, aat:%d", now, aat)
+	}
+
+	time.Sleep(time.Second * 4)
+	err = cache.Set(key, valueShort, 0)
+	if err != nil {
+		t.Fatal("err should be nil")
+	}
+	now = time.Now().Unix()
+	aat = cache.AverageAccessTime()
+	if (now - aat) > 1 {
+		t.Fatalf("track average access time error, now:%d, aat:%d", now, aat)
+	}
+}
+
+func TestAverageAccessTimeWhenUpdateWithNewSpace(t *testing.T) {
+	cache := NewCache(1024)
+
+	key := []byte("test-key")
+	valueLong := []byte("very-long-de-value")
+	valueShort := []byte("short")
+
+	err := cache.Set(key, valueShort, 0)
+	if err != nil {
+		t.Fatal("err should be nil")
+	}
+	now := time.Now().Unix()
+	aat := cache.AverageAccessTime()
+	if (now - aat) > 1 {
+		t.Fatalf("track average access time error, now:%d, aat:%d", now, aat)
+	}
+
+	time.Sleep(time.Second * 4)
+	err = cache.Set(key, valueLong, 0)
+	if err != nil {
+		t.Fatal("err should be nil")
+	}
+	now = time.Now().Unix()
+	aat = cache.AverageAccessTime()
+	if (now - aat) > 2 {
+		t.Fatalf("track average access time error, now:%d, aat:%d", now, aat)
+	}
+}
+
 func TestLargeEntry(t *testing.T) {
 	cacheSize := 512 * 1024
 	cache := NewCache(cacheSize)
@@ -187,7 +245,7 @@ func TestLargeEntry(t *testing.T) {
 		t.Error(err)
 	}
 	if cache.OverwriteCount() != 1 {
-		t.Error("over write count should be one.")
+		t.Errorf("over write count should be one, actual: %d.", cache.OverwriteCount())
 	}
 	val = append(val, 0)
 	err = cache.Set(key, val, 0)
