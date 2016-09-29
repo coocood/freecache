@@ -90,17 +90,21 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		hdr.slotId = slotId
 		hdr.hash16 = hash16
 		hdr.keyLen = uint16(len(key))
+		originAccessTime := hdr.accessTime
 		hdr.accessTime = now
 		hdr.expireAt = expireAt
 		hdr.valLen = uint32(len(value))
 		if hdr.valCap >= hdr.valLen {
 			//in place overwrite
-			seg.totalTime += int64(hdr.accessTime) - int64(now)
+			seg.totalTime += int64(hdr.accessTime) - int64(originAccessTime)
 			seg.rb.WriteAt(hdrBuf[:], matchedPtr.offset)
 			seg.rb.WriteAt(value, matchedPtr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 			seg.overwrites++
 			return
 		}
+		// avoid unnecessary memory copy.
+		seg.delEntryPtr(slotId, hash16, seg.slotsData[idx].offset)
+		match = false
 		// increase capacity and limit entry len.
 		for hdr.valCap < hdr.valLen {
 			hdr.valCap *= 2
@@ -128,13 +132,10 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		// otherwise there would be index out of bound error.
 		slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
 		idx, match = seg.lookup(slot, hash16, key)
+		// assert(match == false)
 	}
 	newOff := seg.rb.End()
-	if match {
-		seg.updateEntryPtr(slotId, hash16, slot[idx].offset, newOff)
-	} else {
-		seg.insertEntryPtr(slotId, hash16, newOff, idx, hdr.keyLen)
-	}
+	seg.insertEntryPtr(slotId, hash16, newOff, idx, hdr.keyLen)
 	seg.rb.Write(hdrBuf[:])
 	seg.rb.Write(key)
 	seg.rb.Write(value)
