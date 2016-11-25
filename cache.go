@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"sync"
 	"sync/atomic"
-
-	"github.com/spaolacci/murmur3"
 )
 
 type Cache struct {
@@ -16,7 +14,7 @@ type Cache struct {
 }
 
 func hashFunc(data []byte) uint64 {
-	return murmur3.Sum64(data)
+	return sum64(data)
 }
 
 // The cache size will be set to 512KB at minimum.
