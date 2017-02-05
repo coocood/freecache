@@ -151,6 +151,24 @@ func TestExpire(t *testing.T) {
 	}
 }
 
+func TestTTL(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("abcd")
+	val := []byte("efgh")
+	err := cache.Set(key, val, 2)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	time.Sleep(time.Second)
+	ttl, err := cache.TTL(key)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	if ttl != 1 {
+		t.Fatalf("ttl should be 1, but %d return", ttl)
+	}
+}
+
 func TestAverageAccessTimeWhenUpdateInplace(t *testing.T) {
 	cache := NewCache(1024)
 

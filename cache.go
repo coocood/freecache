@@ -61,6 +61,13 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	return
 }
 
+func (cache *Cache) TTL(key []byte) (timeLeft uint32, err error) {
+	hashVal := hashFunc(key)
+	segId := hashVal & 255
+	timeLeft, err = cache.segments[segId].ttl(key, hashVal)
+	return
+}
+
 func (cache *Cache) Del(key []byte) (affected bool) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255

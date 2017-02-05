@@ -232,6 +232,34 @@ func (seg *segment) del(key []byte, hashVal uint64) (affected bool) {
 	return true
 }
 
+func (seg *segment) ttl(key []byte, hashVal uint64) (timeLeft uint32, err error) {
+	slotId := uint8(hashVal >> 8)
+	hash16 := uint16(hashVal >> 16)
+	slotOff := int32(slotId) * seg.slotCap
+	var slot = seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
+	idx, match := seg.lookup(slot, hash16, key)
+	if !match {
+		err = ErrNotFound
+		return
+	}
+	ptr := &slot[idx]
+	now := uint32(time.Now().Unix())
+
+	var hdrBuf [ENTRY_HDR_SIZE]byte
+	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
+	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
+
+	if hdr.expireAt == 0 {
+		timeLeft = 0
+		return
+	} else if hdr.expireAt != 0 && hdr.expireAt >= now {
+		timeLeft = hdr.expireAt - now
+		return
+	}
+	err = ErrNotFound
+	return
+}
+
 func (seg *segment) expand() {
 	newSlotData := make([]entryPtr, seg.slotCap*2*256)
 	for i := 0; i < 256; i++ {
