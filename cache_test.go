@@ -304,6 +304,34 @@ func TestInt64Key(t *testing.T) {
 	}
 }
 
+func TestIterator(t *testing.T) {
+	cache := NewCache(1024)
+	count := 10000
+	for i := 0; i < count; i++ {
+		err := cache.Set([]byte(fmt.Sprintf("%d", i)), []byte(fmt.Sprintf("val%d", i)), 0)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	// Set some value that expires to make sure expired entry is not returned.
+	cache.Set([]byte("abc"), []byte("def"), 1)
+	time.Sleep(2 * time.Second)
+	it := cache.NewIterator()
+	for i := 0; i < count; i++ {
+		entry := it.Next()
+		if entry == nil {
+			t.Fatalf("entry is nil for %d", i)
+		}
+		if string(entry.Value) != "val"+string(entry.Key) {
+			t.Fatalf("entry key value not match %s %s", entry.Key, entry.Value)
+		}
+	}
+	e := it.Next()
+	if e != nil {
+		t.Fail()
+	}
+}
+
 func BenchmarkCacheSet(b *testing.B) {
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte

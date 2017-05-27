@@ -17,6 +17,7 @@ without increased latency and degraded throughput.
 * Nearly LRU algorithm
 * Strictly limited memory usage
 * Come with a toy server that supports a few basic Redis commands with pipeline
+* Iterator support
 
 ## Performance
 
@@ -51,8 +52,8 @@ fmt.Println("entry count ", cache.EntryCount())
 
 ## Notice
 
-* Memory is preallocated. 
-* If you allocate large amount of memory, you may need to set `debug.SetGCPercent()` 
+* Memory is preallocated.
+* If you allocate large amount of memory, you may need to set `debug.SetGCPercent()`
 to a much lower percentage to get a normal GC frequency.
 
 ## How it is done
@@ -70,4 +71,5 @@ Each segment has its own lock, so it supports high concurrent access.
 * Support resize cache size at runtime.
 
 ## License
+
 The MIT License
