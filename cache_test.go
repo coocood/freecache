@@ -131,7 +131,7 @@ func TestOverwrite(t *testing.T) {
 
 }
 
-func TestGetWithExpiry(t *testing.T) {
+func TestGetWithExpiration(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
 	val := []byte("efgh")
@@ -397,6 +397,21 @@ func BenchmarkCacheGet(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		cache.Get(key[:])
+	}
+}
+
+func BenchmarkCacheGetWithExpiration(b *testing.B) {
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	var key [8]byte
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], make([]byte, 8), 0)
+	}
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.GetWithExpiration(key[:])
 	}
 }
 
