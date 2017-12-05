@@ -139,8 +139,9 @@ func TestGetWithExpiration(t *testing.T) {
 	if err != nil {
 		t.Error("err should be nil", err.Error())
 	}
-	time.Sleep(time.Second)
+
 	res, expiry, err := cache.GetWithExpiration(key)
+	time.Sleep(time.Second)
 	if err != nil {
 		t.Error("err should be nil", err.Error())
 	}
@@ -326,7 +327,7 @@ func TestInt64Key(t *testing.T) {
 	}
 	now := time.Now()
 	if expiry != uint32(now.Unix()+1) {
-		t.Errorf("Expiry should be two seconds in the future but was %v", now)
+		t.Errorf("Expiry should one second in the future but was %v", now)
 	}
 
 	affected := cache.DelInt(1)
