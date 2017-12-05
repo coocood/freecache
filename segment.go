@@ -186,7 +186,7 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 	return
 }
 
-func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
+func (seg *segment) get(key []byte, hashVal uint64) (value []byte, expireAt uint32, err error) {
 	slotId := uint8(hashVal >> 8)
 	hash16 := uint16(hashVal >> 16)
 	slotOff := int32(slotId) * seg.slotCap
@@ -202,6 +202,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 	var hdrBuf [ENTRY_HDR_SIZE]byte
 	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
 	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
+	expireAt = hdr.expireAt
 
 	if hdr.expireAt != 0 && hdr.expireAt <= now {
 		seg.delEntryPtr(slotId, hash16, ptr.offset)
@@ -209,6 +210,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, err error) {
 		err = ErrNotFound
 		return
 	}
+
 	seg.totalTime += int64(now - hdr.accessTime)
 	hdr.accessTime = now
 	seg.rb.WriteAt(hdrBuf[:], ptr.offset)

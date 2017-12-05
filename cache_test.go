@@ -131,6 +131,28 @@ func TestOverwrite(t *testing.T) {
 
 }
 
+func TestGetWithExpiry(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("abcd")
+	val := []byte("efgh")
+	err := cache.Set(key, val, 2)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	time.Sleep(time.Second)
+	res, expiry, err := cache.GetWithExpiration(key)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	if !bytes.Equal(val, res) {
+		t.Fatalf("%s should be the same as %s but isn't", res, val)
+	}
+	now := time.Now()
+	if expiry != uint32(now.Unix()+1) {
+		t.Fatalf("expiry should be one second in the future but was %v", now)
+	}
+}
+
 func TestExpire(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
@@ -279,11 +301,11 @@ func TestLargeEntry(t *testing.T) {
 
 func TestInt64Key(t *testing.T) {
 	cache := NewCache(1024)
-	err := cache.SetInt(1, []byte("abc"), 0)
+	err := cache.SetInt(1, []byte("abc"), 3)
 	if err != nil {
 		t.Error("err should be nil")
 	}
-	err = cache.SetInt(2, []byte("cde"), 0)
+	err = cache.SetInt(2, []byte("cde"), 3)
 	if err != nil {
 		t.Error("err should be nil")
 	}
@@ -294,6 +316,19 @@ func TestInt64Key(t *testing.T) {
 	if !bytes.Equal(val, []byte("abc")) {
 		t.Error("value not equal")
 	}
+	time.Sleep(2 * time.Second)
+	val, expiry, err := cache.GetIntWithExpiration(1)
+	if err != nil {
+		t.Error("err should be nil")
+	}
+	if !bytes.Equal(val, []byte("abc")) {
+		t.Error("value not equal")
+	}
+	now := time.Now()
+	if expiry != uint32(now.Unix()+1) {
+		t.Errorf("Expiry should be two seconds in the future but was %v", now)
+	}
+
 	affected := cache.DelInt(1)
 	if !affected {
 		t.Error("del should return affected true")
