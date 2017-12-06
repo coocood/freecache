@@ -141,16 +141,28 @@ func TestGetWithExpiration(t *testing.T) {
 	}
 
 	res, expiry, err := cache.GetWithExpiration(key)
-	time.Sleep(time.Second)
+	var expireTime time.Time
+	var startTime = time.Now()
+	for {
+		_, _, err := cache.GetWithExpiration(key)
+		expireTime = time.Now()
+		if err != nil {
+			break
+		}
+		if time.Now().Unix() > int64(expiry+1) {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	if time.Second > expireTime.Sub(startTime) || 3*time.Second < expireTime.Sub(startTime) {
+		t.Error("Cache should expire within a second of the expire time")
+	}
+
 	if err != nil {
 		t.Error("err should be nil", err.Error())
 	}
 	if !bytes.Equal(val, res) {
 		t.Fatalf("%s should be the same as %s but isn't", res, val)
-	}
-	now := time.Now()
-	if expiry != uint32(now.Unix()+1) {
-		t.Fatalf("expiry should be one second in the future but was %v", now)
 	}
 }
 
