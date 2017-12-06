@@ -51,7 +51,22 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255
 	cache.locks[segId].Lock()
-	value, err = cache.segments[segId].get(key, hashVal)
+	value, _, err = cache.segments[segId].get(key, hashVal)
+	cache.locks[segId].Unlock()
+	if err == nil {
+		atomic.AddInt64(&cache.hitCount, 1)
+	} else {
+		atomic.AddInt64(&cache.missCount, 1)
+	}
+	return
+}
+
+// Get the value or not found error.
+func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32, err error) {
+	hashVal := hashFunc(key)
+	segId := hashVal & 255
+	cache.locks[segId].Lock()
+	value, expireAt, err = cache.segments[segId].get(key, hashVal)
 	cache.locks[segId].Unlock()
 	if err == nil {
 		atomic.AddInt64(&cache.hitCount, 1)
@@ -87,6 +102,12 @@ func (cache *Cache) GetInt(key int64) (value []byte, err error) {
 	var bKey [8]byte
 	binary.LittleEndian.PutUint64(bKey[:], uint64(key))
 	return cache.Get(bKey[:])
+}
+
+func (cache *Cache) GetIntWithExpiration(key int64) (value []byte, expireAt uint32, err error) {
+	var bKey [8]byte
+	binary.LittleEndian.PutUint64(bKey[:], uint64(key))
+	return cache.GetWithExpiration(bKey[:])
 }
 
 func (cache *Cache) DelInt(key int64) (affected bool) {
