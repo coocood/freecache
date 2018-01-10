@@ -114,7 +114,7 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		match = false
 		// increase capacity and limit entry len.
 		for hdr.valCap < hdr.valLen {
-			hdr.valCap = hdr.valLen
+			hdr.valCap *= hdr.valCap
 		}
 		if hdr.valCap > uint32(maxKeyValLen-len(key)) {
 			hdr.valCap = uint32(maxKeyValLen - len(key))
