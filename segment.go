@@ -6,12 +6,19 @@ import (
 	"unsafe"
 )
 
-const HASH_ENTRY_SIZE = 16
-const ENTRY_HDR_SIZE = 24
+const (
+	HASH_ENTRY_SIZE = 16
+	ENTRY_HDR_SIZE  = 24
 
-var ErrLargeKey = errors.New("The key is larger than 65535")
-var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
-var ErrNotFound = errors.New("Entry not found")
+	MAX_LARGE_KEY = 65535
+	SLOT_COUNT    = 256
+)
+
+var (
+	ErrLargeKey   = errors.New("The key is larger than 65535")
+	ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
+	ErrNotFound   = errors.New("Entry not found")
+)
 
 // entry pointer struct points to an entry in ring buffer
 type entryPtr struct {
@@ -40,15 +47,15 @@ type segment struct {
 	rb            RingBuf // ring buffer that stores data
 	segId         int
 	entryCount    int64
-	totalCount    int64      // number of entries in ring buffer, including deleted entries.
-	totalTime     int64      // used to calculate least recent used entry.
-	totalEvacuate int64      // used for debug
-	totalExpired  int64      // used for debug
-	overwrites    int64      // used for debug
-	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
-	slotLens      [256]int32 // The actual length for every slot.
-	slotCap       int32      // max number of entry pointers a slot can hold.
-	slotsData     []entryPtr // shared by all 256 slots
+	totalCount    int64             // number of entries in ring buffer, including deleted entries.
+	totalTime     int64             // used to calculate least recent used entry.
+	totalEvacuate int64             // used for debug
+	totalExpired  int64             // used for debug
+	overwrites    int64             // used for debug
+	vacuumLen     int64             // up to vacuumLen, new data can be written without overwriting old data.
+	slotLens      [SLOT_COUNT]int32 // The actual length for every slot.
+	slotCap       int32             // max number of entry pointers a slot can hold.
+	slotsData     []entryPtr        // shared by all 256 slots
 }
 
 func newSegment(bufSize int, segId int) (seg segment) {
@@ -56,12 +63,12 @@ func newSegment(bufSize int, segId int) (seg segment) {
 	seg.segId = segId
 	seg.vacuumLen = int64(bufSize)
 	seg.slotCap = 1
-	seg.slotsData = make([]entryPtr, 256*seg.slotCap)
+	seg.slotsData = make([]entryPtr, SLOT_COUNT*seg.slotCap)
 	return
 }
 
 func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (err error) {
-	if len(key) > 65535 {
+	if len(key) > MAX_LARGE_KEY {
 		return ErrLargeKey
 	}
 	maxKeyValLen := len(seg.rb.data)/4 - ENTRY_HDR_SIZE
@@ -103,11 +110,11 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 			return
 		}
 		// avoid unnecessary memory copy.
-		seg.delEntryPtr(slotId, hash16, seg.slotsData[idx].offset)
+		seg.delEntryPtr(slotId, hash16, slot[idx].offset)
 		match = false
 		// increase capacity and limit entry len.
 		for hdr.valCap < hdr.valLen {
-			hdr.valCap *= 2
+			hdr.valCap = hdr.valLen
 		}
 		if hdr.valCap > uint32(maxKeyValLen-len(key)) {
 			hdr.valCap = uint32(maxKeyValLen - len(key))
@@ -263,8 +270,8 @@ func (seg *segment) ttl(key []byte, hashVal uint64) (timeLeft uint32, err error)
 }
 
 func (seg *segment) expand() {
-	newSlotData := make([]entryPtr, seg.slotCap*2*256)
-	for i := 0; i < 256; i++ {
+	newSlotData := make([]entryPtr, seg.slotCap*2*SLOT_COUNT)
+	for i := 0; i < SLOT_COUNT; i++ {
 		off := int32(i) * seg.slotCap
 		copy(newSlotData[off*2:], seg.slotsData[off:off+seg.slotLens[i]])
 	}
@@ -365,4 +372,10 @@ func (seg *segment) resetStatistics() {
 	seg.totalEvacuate = 0
 	seg.totalExpired = 0
 	seg.overwrites = 0
+}
+
+func (seg *segment) resize(newsize int) {
+	oldSize := seg.rb.Size()
+	seg.rb.Resize(newsize)
+	seg.vacuumLen += int64(newsize) - oldSize
 }
