@@ -213,22 +213,36 @@ func (rb *RingBuf) Resize(newSize int) {
 	if len(rb.data) == newSize {
 		return
 	}
-	newData := make([]byte, newSize)
+
+	newIndex := rb.index
 	var offset int
 	if rb.end-rb.begin == int64(len(rb.data)) {
-		offset = rb.index
+		if int(rb.end-rb.begin) > newSize {
+			offset = rb.index
+		} else {
+			offset = 0
+		}
+		newIndex = len(rb.data)
 	}
+
 	if int(rb.end-rb.begin) > newSize {
+		newIndex = 0
 		discard := int(rb.end-rb.begin) - newSize
 		offset = (offset + discard) % len(rb.data)
 		rb.begin = rb.end - int64(newSize)
+	} else if len(rb.data) > newSize {
+		offset = 0
+		newIndex = int(rb.end-rb.begin) % newSize
 	}
+
+	newData := make([]byte, newSize)
 	n := copy(newData, rb.data[offset:])
 	if n < newSize {
 		copy(newData[n:], rb.data[:offset])
 	}
+
+	rb.index = newIndex
 	rb.data = newData
-	rb.index = 0
 }
 
 func (rb *RingBuf) Skip(length int64) {
