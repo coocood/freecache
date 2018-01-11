@@ -67,6 +67,9 @@ func (it *Iterator) nextForSlot(seg *segment, slotId int) *Entry {
 			seg.rb.ReadAt(entry.Key, ptr.offset+ENTRY_HDR_SIZE)
 			seg.rb.ReadAt(entry.Value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 			return entry
+		} else {
+			seg.delEntryPtr(uint8(slotId), ptr.hash16, ptr.offset)
+			seg.totalExpired++
 		}
 	}
 	return nil

@@ -139,10 +139,15 @@ func (cache *Cache) ExpiredCount() (count int64) {
 }
 
 func (cache *Cache) EntryCount() (entryCount int64) {
-	for i := 0; i < SEGMENT_NUMBER; i++ {
-		entryCount += atomic.LoadInt64(&cache.segments[i].entryCount)
+	it := cache.NewIterator()
+	for {
+		entry := it.Next()
+		if entry == nil {
+			break
+		}
+		entryCount = atomic.AddInt64(&entryCount, 1)
 	}
-	return
+	return entryCount
 }
 
 // The average unix timestamp when a entry being accessed.
