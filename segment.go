@@ -39,6 +39,8 @@ type entryHdr struct {
 type segment struct {
 	rb            RingBuf // ring buffer that stores data
 	segId         int
+	hitCount      int64
+	missCount     int64
 	entryCount    int64
 	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
@@ -194,6 +196,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, expireAt uint
 	idx, match := seg.lookup(slot, hash16, key)
 	if !match {
 		err = ErrNotFound
+		seg.missCount += 1
 		return
 	}
 	ptr := &slot[idx]
@@ -208,6 +211,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, expireAt uint
 		seg.delEntryPtr(slotId, hash16, ptr.offset)
 		seg.totalExpired++
 		err = ErrNotFound
+		seg.missCount += 1
 		return
 	}
 
@@ -217,6 +221,7 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, expireAt uint
 	value = make([]byte, hdr.valLen)
 
 	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
+	seg.hitCount += 1
 	return
 }
 
@@ -365,4 +370,6 @@ func (seg *segment) resetStatistics() {
 	seg.totalEvacuate = 0
 	seg.totalExpired = 0
 	seg.overwrites = 0
+	seg.hitCount = 0
+	seg.missCount = 0
 }
