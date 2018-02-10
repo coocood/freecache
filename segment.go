@@ -105,7 +105,8 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 			return
 		}
 		// avoid unnecessary memory copy.
-		seg.delEntryPtr(slotId, hash16, seg.slotsData[idx].offset)
+		seg.delEntryPtr(slotId, hash16, slot[idx].offset)
+		//seg.delEntryPtr(slotId, hash16, seg.slotsData[idx].offset)
 		match = false
 		// increase capacity and limit entry len.
 		for hdr.valCap < hdr.valLen {
