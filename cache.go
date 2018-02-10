@@ -8,8 +8,12 @@ import (
 	"github.com/cespare/xxhash"
 )
 
+const (
+	minBufSize = 512 * 1024
+)
+
 type Cache struct {
-	locks    [256]sync.Mutex
+	locks    [256]sync.RWMutex
 	segments [256]segment
 }
 
@@ -22,8 +26,8 @@ func hashFunc(data []byte) uint64 {
 // `debug.SetGCPercent()`, set it to a much smaller value
 // to limit the memory consumption and GC pause time.
 func NewCache(size int) (cache *Cache) {
-	if size < 512*1024 {
-		size = 512 * 1024
+	if size < minBufSize {
+		size = minBufSize
 	}
 	cache = new(Cache)
 	for i := 0; i < 256; i++ {
@@ -48,9 +52,9 @@ func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255
-	cache.locks[segId].Lock()
+	cache.locks[segId].RLock()
 	value, _, err = cache.segments[segId].get(key, hashVal)
-	cache.locks[segId].Unlock()
+	cache.locks[segId].RUnlock()
 	return
 }
 
@@ -58,9 +62,9 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32, err error) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255
-	cache.locks[segId].Lock()
+	cache.locks[segId].RLock()
 	value, expireAt, err = cache.segments[segId].get(key, hashVal)
-	cache.locks[segId].Unlock()
+	cache.locks[segId].RUnlock()
 	return
 }
 
@@ -176,6 +180,7 @@ func (cache *Cache) OverwriteCount() (overwriteCount int64) {
 	return
 }
 
+//Clear is not threadsafe.
 func (cache *Cache) Clear() {
 	for i := 0; i < 256; i++ {
 		cache.locks[i].Lock()
