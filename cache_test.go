@@ -388,7 +388,7 @@ func TestRace(t *testing.T) {
 	wg := sync.WaitGroup{}
 	var iters int64 = 1000
 
-	wg.Add(5)
+	wg.Add(6)
 	addFunc := func() {
 		var i int64
 		for i = 0; i < iters; i++ {
@@ -434,12 +434,20 @@ func TestRace(t *testing.T) {
 		}
 		wg.Done()
 	}
+	clearFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.Clear()
+		}
+		wg.Done()
+	}
 
 	go addFunc()
 	go getFunc()
 	go delFunc()
 	go evacFunc()
 	go resetFunc()
+	go clearFunc()
 	wg.Wait()
 }
 

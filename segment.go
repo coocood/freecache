@@ -373,3 +373,23 @@ func (seg *segment) resetStatistics() {
 	atomic.StoreInt64(&seg.hitCount, 0)
 	atomic.StoreInt64(&seg.missCount, 0)
 }
+
+func (seg *segment) clear() {
+	bufSize := len(seg.rb.data)
+	seg.rb = NewRingBuf(bufSize, 0)
+	seg.vacuumLen = int64(bufSize)
+	seg.slotCap = 1
+	seg.slotsData = make([]entryPtr, 256*seg.slotCap)
+	for i := 0; i < len(seg.slotLens); i++ {
+		seg.slotLens[i] = 0
+	}
+
+	atomic.StoreInt64(&seg.hitCount, 0)
+	atomic.StoreInt64(&seg.missCount, 0)
+	atomic.StoreInt64(&seg.entryCount, 0)
+	atomic.StoreInt64(&seg.totalCount, 0)
+	atomic.StoreInt64(&seg.totalTime, 0)
+	atomic.StoreInt64(&seg.totalEvacuate, 0)
+	atomic.StoreInt64(&seg.totalExpired, 0)
+	atomic.StoreInt64(&seg.overwrites, 0)
+}

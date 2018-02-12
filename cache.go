@@ -13,7 +13,7 @@ const (
 )
 
 type Cache struct {
-	locks    [256]sync.RWMutex
+	locks    [256]sync.Mutex
 	segments [256]segment
 }
 
@@ -52,9 +52,9 @@ func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255
-	cache.locks[segId].RLock()
+	cache.locks[segId].Lock()
 	value, _, err = cache.segments[segId].get(key, hashVal)
-	cache.locks[segId].RUnlock()
+	cache.locks[segId].Unlock()
 	return
 }
 
@@ -62,9 +62,9 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32, err error) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255
-	cache.locks[segId].RLock()
+	cache.locks[segId].Lock()
 	value, expireAt, err = cache.segments[segId].get(key, hashVal)
-	cache.locks[segId].RUnlock()
+	cache.locks[segId].Unlock()
 	return
 }
 
@@ -180,12 +180,10 @@ func (cache *Cache) OverwriteCount() (overwriteCount int64) {
 	return
 }
 
-//Clear is not threadsafe.
 func (cache *Cache) Clear() {
 	for i := 0; i < 256; i++ {
 		cache.locks[i].Lock()
-		newSeg := newSegment(len(cache.segments[i].rb.data), i)
-		cache.segments[i] = newSeg
+		cache.segments[i].clear()
 		cache.locks[i].Unlock()
 	}
 }
