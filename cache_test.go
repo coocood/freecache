@@ -382,6 +382,47 @@ func TestIterator(t *testing.T) {
 	}
 }
 
+func TestSetLargerEntryDeletesWrongEntry(t *testing.T) {
+	cachesize := 512 * 1024
+	cache := NewCache(cachesize)
+
+	value1 := "aaa"
+	key1 := []byte("key1")
+	value := value1
+	cache.Set(key1, []byte(value), 0)
+
+	it := cache.NewIterator()
+	entry := it.Next()
+	if !bytes.Equal(entry.Key, key1) {
+		t.Fatalf("key %s not equal to %s", entry.Key, key1)
+	}
+	if !bytes.Equal(entry.Value, []byte(value)) {
+		t.Fatalf("value %s not equal to %s", entry.Value, value)
+	}
+	entry = it.Next()
+	if entry != nil {
+		t.Fatalf("expected nil entry but got %s %s", entry.Key, entry.Value)
+	}
+
+	value = value1 + "XXXXXX"
+	cache.Set(key1, []byte(value), 0)
+
+	value = value1 + "XXXXYYYYYYY"
+	cache.Set(key1, []byte(value), 0)
+	it = cache.NewIterator()
+	entry = it.Next()
+	if !bytes.Equal(entry.Key, key1) {
+		t.Fatalf("key %s not equal to %s", entry.Key, key1)
+	}
+	if !bytes.Equal(entry.Value, []byte(value)) {
+		t.Fatalf("value %s not equal to %s", entry.Value, value)
+	}
+	entry = it.Next()
+	if entry != nil {
+		t.Fatalf("expected nil entry but got %s %s", entry.Key, entry.Value)
+	}
+}
+
 func TestRace(t *testing.T) {
 	cache := NewCache(minBufSize)
 	inUse := 8
