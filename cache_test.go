@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	mrand "math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -419,6 +421,75 @@ func TestSetLargerEntryDeletesWrongEntry(t *testing.T) {
 	if entry != nil {
 		t.Fatalf("expected nil entry but got %s %s", entry.Key, entry.Value)
 	}
+}
+
+func TestRace(t *testing.T) {
+	cache := NewCache(minBufSize)
+	inUse := 8
+	wg := sync.WaitGroup{}
+	var iters int64 = 1000
+
+	wg.Add(6)
+	addFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			err := cache.SetInt(int64(mrand.Intn(inUse)), []byte("abc"), 1)
+			if err != nil {
+				t.Errorf("err: %s", err)
+			}
+		}
+		wg.Done()
+	}
+	getFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			_, _ = cache.GetInt(int64(mrand.Intn(inUse))) //it will likely error w/ delFunc running too
+		}
+		wg.Done()
+	}
+	delFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.DelInt(int64(mrand.Intn(inUse)))
+		}
+		wg.Done()
+	}
+	evacFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			_ = cache.EvacuateCount()
+			_ = cache.ExpiredCount()
+			_ = cache.EntryCount()
+			_ = cache.AverageAccessTime()
+			_ = cache.HitCount()
+			_ = cache.LookupCount()
+			_ = cache.HitRate()
+			_ = cache.OverwriteCount()
+		}
+		wg.Done()
+	}
+	resetFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.ResetStatistics()
+		}
+		wg.Done()
+	}
+	clearFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.Clear()
+		}
+		wg.Done()
+	}
+
+	go addFunc()
+	go getFunc()
+	go delFunc()
+	go evacFunc()
+	go resetFunc()
+	go clearFunc()
+	wg.Wait()
 }
 
 func BenchmarkCacheSet(b *testing.B) {

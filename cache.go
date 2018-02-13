@@ -8,6 +8,10 @@ import (
 	"github.com/cespare/xxhash"
 )
 
+const (
+	minBufSize = 512 * 1024
+)
+
 type Cache struct {
 	locks    [256]sync.Mutex
 	segments [256]segment
@@ -22,8 +26,8 @@ func hashFunc(data []byte) uint64 {
 // `debug.SetGCPercent()`, set it to a much smaller value
 // to limit the memory consumption and GC pause time.
 func NewCache(size int) (cache *Cache) {
-	if size < 512*1024 {
-		size = 512 * 1024
+	if size < minBufSize {
+		size = minBufSize
 	}
 	cache = new(Cache)
 	for i := 0; i < 256; i++ {
@@ -179,8 +183,7 @@ func (cache *Cache) OverwriteCount() (overwriteCount int64) {
 func (cache *Cache) Clear() {
 	for i := 0; i < 256; i++ {
 		cache.locks[i].Lock()
-		newSeg := newSegment(len(cache.segments[i].rb.data), i)
-		cache.segments[i] = newSeg
+		cache.segments[i].clear()
 		cache.locks[i].Unlock()
 	}
 }
