@@ -38,6 +38,10 @@ type entryHdr struct {
 // a segment contains 256 slots, a slot is an array of entry pointers ordered by hash16 value
 // the entry can be looked up by hash value of the key.
 type segment struct {
+	// According to the docs, "The first word in a global variable or in an
+	// allocated struct or slice can be relied upon to be 64-bit aligned."
+	// Moving entryCount to the top didn't help so lets add 4 byte on top.
+	_             [4]byte
 	entryCount    int64
 	hitCount      int64
 	missCount     int64
