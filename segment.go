@@ -38,17 +38,17 @@ type entryHdr struct {
 // a segment contains 256 slots, a slot is an array of entry pointers ordered by hash16 value
 // the entry can be looked up by hash value of the key.
 type segment struct {
-	rb            RingBuf // ring buffer that stores data
-	segId         int
+	entryCount    int64
 	hitCount      int64
 	missCount     int64
-	entryCount    int64
 	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
 	totalEvacuate int64      // used for debug
 	totalExpired  int64      // used for debug
 	overwrites    int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
+	rb            RingBuf // ring buffer that stores data
+	segId         int
 	slotLens      [256]int32 // The actual length for every slot.
 	slotCap       int32      // max number of entry pointers a slot can hold.
 	slotsData     []entryPtr // shared by all 256 slots
