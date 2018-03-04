@@ -40,8 +40,9 @@ type entryHdr struct {
 type segment struct {
 	rb            RingBuf // ring buffer that stores data
 	segId         int
-	hitCount      int64
+	_             uint32
 	missCount     int64
+	hitCount      int64
 	entryCount    int64
 	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
