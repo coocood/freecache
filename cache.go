@@ -86,6 +86,24 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 	return
 }
 
+// GetRandomValue returns a random value or not found error.
+func (cache *Cache) GetRandomValue() (key []byte, value []byte, err error) {
+	segID := Random(0, 256)
+	cache.locks[segID].Lock()
+	key, value, _, err = cache.segments[segID].getRandomValue()
+	cache.locks[segID].Unlock()
+	return
+}
+
+// GetRandomValueWithExpiration returns a random value with expiration or not found error.
+func (cache *Cache) GetRandomValueWithExpiration() (key []byte, value []byte, expireAt uint32, err error) {
+	segID := Random(0, 256)
+	cache.locks[segID].Lock()
+	key, value, expireAt, err = cache.segments[segID].getRandomValue()
+	cache.locks[segID].Unlock()
+	return
+}
+
 // TTL returns the TTL time left for a given key or a not found error.
 func (cache *Cache) TTL(key []byte) (timeLeft uint32, err error) {
 	hashVal := hashFunc(key)
