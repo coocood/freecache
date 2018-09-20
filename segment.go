@@ -3,6 +3,7 @@ package freecache
 import (
 	"errors"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -15,9 +16,12 @@ var ErrLargeKey = errors.New("The key is larger than 65535")
 var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
 var ErrNotFound = errors.New("Entry not found")
 
+var randLock = &sync.Mutex{}
 var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func Random(min, max int) int {
+	randLock.Lock()
+	defer randLock.Unlock()
 	return rng.Intn(max-min) + min
 }
 
