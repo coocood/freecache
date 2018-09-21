@@ -18,8 +18,6 @@ type Cache struct {
 	locks     [SEGMENT_NUMBER]sync.Mutex
 	segments  [SEGMENT_NUMBER]segment
 	cacheSize int
-	hitCount  int64
-	missCount int64
 }
 
 func hashFunc(data []byte) uint64 {
@@ -61,11 +59,6 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	cache.locks[segId].Lock()
 	value, _, err = cache.segments[segId].get(key, hashVal)
 	cache.locks[segId].Unlock()
-	if err == nil {
-		atomic.AddInt64(&cache.hitCount, 1)
-	} else {
-		atomic.AddInt64(&cache.missCount, 1)
-	}
 	return
 }
 
@@ -76,11 +69,6 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 	cache.locks[segId].Lock()
 	value, expireAt, err = cache.segments[segId].get(key, hashVal)
 	cache.locks[segId].Unlock()
-	if err == nil {
-		atomic.AddInt64(&cache.hitCount, 1)
-	} else {
-		atomic.AddInt64(&cache.missCount, 1)
-	}
 	return
 }
 
@@ -145,9 +133,10 @@ func (cache *Cache) EntryCount() (entryCount int64) {
 		if entry == nil {
 			break
 		}
-		entryCount = atomic.AddInt64(&entryCount, 1)
+		//entryCount =
+		atomic.AddInt64(&entryCount, 1)
 	}
-	return entryCount
+	return
 }
 
 // The average unix timestamp when a entry being accessed.
@@ -166,20 +155,31 @@ func (cache *Cache) AverageAccessTime() int64 {
 	}
 }
 
-func (cache *Cache) HitCount() int64 {
-	return atomic.LoadInt64(&cache.hitCount)
+func (cache *Cache) HitCount() (count int64) {
+	for i := range cache.segments {
+		count += atomic.LoadInt64(&cache.segments[i].hitCount)
+	}
+	return
+}
+
+func (cache *Cache) MissCount() (count int64) {
+	for i := range cache.segments {
+		count += atomic.LoadInt64(&cache.segments[i].missCount)
+	}
+	return
 }
 
 func (cache *Cache) LookupCount() int64 {
-	return atomic.LoadInt64(&cache.hitCount) + atomic.LoadInt64(&cache.missCount)
+	return cache.HitCount() + cache.MissCount()
 }
 
 func (cache *Cache) HitRate() float64 {
-	lookupCount := cache.LookupCount()
+	hitCount, missCount := cache.HitCount(), cache.MissCount()
+	lookupCount := hitCount + missCount
 	if lookupCount == 0 {
 		return 0
 	} else {
-		return float64(cache.HitCount()) / float64(lookupCount)
+		return float64(hitCount) / float64(lookupCount)
 	}
 }
 
@@ -193,12 +193,17 @@ func (cache *Cache) OverwriteCount() (overwriteCount int64) {
 func (cache *Cache) Clear() {
 	for i := 0; i < SEGMENT_NUMBER; i++ {
 		cache.locks[i].Lock()
-		newSeg := newSegment(len(cache.segments[i].rb.data), i)
-		cache.segments[i] = newSeg
+		cache.segments[i].clear()
 		cache.locks[i].Unlock()
 	}
-	atomic.StoreInt64(&cache.hitCount, 0)
-	atomic.StoreInt64(&cache.missCount, 0)
+}
+
+func (cache *Cache) ResetStatistics() {
+	for i := 0; i < SEGMENT_NUMBER; i++ {
+		cache.locks[i].Lock()
+		cache.segments[i].resetStatistics()
+		cache.locks[i].Unlock()
+	}
 }
 
 func (cache *Cache) Resize(newSize int) {
@@ -216,16 +221,6 @@ func (cache *Cache) Resize(newSize int) {
 			newSeg := newSegment(len(cache.segments[i].rb.data), i)
 			cache.segments[i] = newSeg
 		}
-		cache.locks[i].Unlock()
-	}
-}
-
-func (cache *Cache) ResetStatistics() {
-	atomic.StoreInt64(&cache.hitCount, 0)
-	atomic.StoreInt64(&cache.missCount, 0)
-	for i := 0; i < SEGMENT_NUMBER; i++ {
-		cache.locks[i].Lock()
-		cache.segments[i].resetStatistics()
 		cache.locks[i].Unlock()
 	}
 }

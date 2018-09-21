@@ -1,6 +1,7 @@
 package freecache
 
 import (
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -69,7 +70,7 @@ func (it *Iterator) nextForSlot(seg *segment, slotId int) *Entry {
 			return entry
 		} else {
 			seg.delEntryPtr(uint8(slotId), ptr.hash16, ptr.offset)
-			seg.totalExpired++
+			atomic.AddInt64(&seg.totalExpired, 1)
 		}
 	}
 	return nil

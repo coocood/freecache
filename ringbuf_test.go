@@ -10,7 +10,9 @@ func TestRingBuf(t *testing.T) {
 	rb.Write([]byte("fghibbbbc"))
 	rb.Resize(16)
 	off := rb.Evacuate(9, 3)
+	t.Log(rb.String())
 	t.Log(string(rb.Dump()))
+
 	if off != rb.End()-3 {
 		t.Log(string(rb.Dump()), rb.End())
 		t.Fatalf("off got %v", off)
@@ -22,9 +24,11 @@ func TestRingBuf(t *testing.T) {
 	}
 	rb.Resize(64)
 	rb.Resize(32)
+	t.Log(rb.String())
+	t.Log(string(rb.Dump()))
 	data := make([]byte, 5)
 	rb.ReadAt(data, off)
-	if string(data) != "efghi" {
+	if string(data) != "cefgh" {
 		t.Fatalf("read at should be efghi, got %v", string(data))
 	}
 

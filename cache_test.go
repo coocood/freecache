@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	mrand "math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -183,6 +185,34 @@ func TestExpire(t *testing.T) {
 	cache.ResetStatistics()
 	if cache.ExpiredCount() != 0 {
 		t.Error("expired count should be zero.")
+	}
+}
+
+func TestEntryCount(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("key1")
+	val := []byte("value1")
+	err := cache.Set(key, val, 1)
+	if err != nil {
+		t.Error("err should be nil")
+	}
+
+	key2 := []byte("key2")
+	val2 := []byte("value2")
+	err = cache.Set(key2, val2, 3)
+	if err != nil {
+		t.Error("err should be nil")
+	}
+
+	entryCount := cache.EntryCount()
+	if entryCount != 2 {
+		t.Error("entryCount should be 2")
+	}
+	time.Sleep(time.Second)
+
+	entryCount = cache.EntryCount()
+	if entryCount != 1 {
+		t.Error("entryCount should be 1")
 	}
 }
 
@@ -378,6 +408,116 @@ func TestIterator(t *testing.T) {
 	if e != nil {
 		t.Fail()
 	}
+}
+
+func TestSetLargerEntryDeletesWrongEntry(t *testing.T) {
+	cachesize := 512 * 1024
+	cache := NewCache(cachesize)
+
+	value1 := "aaa"
+	key1 := []byte("key1")
+	value := value1
+	cache.Set(key1, []byte(value), 0)
+
+	it := cache.NewIterator()
+	entry := it.Next()
+	if !bytes.Equal(entry.Key, key1) {
+		t.Fatalf("key %s not equal to %s", entry.Key, key1)
+	}
+	if !bytes.Equal(entry.Value, []byte(value)) {
+		t.Fatalf("value %s not equal to %s", entry.Value, value)
+	}
+	entry = it.Next()
+	if entry != nil {
+		t.Fatalf("expected nil entry but got %s %s", entry.Key, entry.Value)
+	}
+
+	value = value1 + "XXXXXX"
+	cache.Set(key1, []byte(value), 0)
+
+	value = value1 + "XXXXYYYYYYY"
+	cache.Set(key1, []byte(value), 0)
+	it = cache.NewIterator()
+	entry = it.Next()
+	if !bytes.Equal(entry.Key, key1) {
+		t.Fatalf("key %s not equal to %s", entry.Key, key1)
+	}
+	if !bytes.Equal(entry.Value, []byte(value)) {
+		t.Fatalf("value %s not equal to %s", entry.Value, value)
+	}
+	entry = it.Next()
+	if entry != nil {
+		t.Fatalf("expected nil entry but got %s %s", entry.Key, entry.Value)
+	}
+}
+
+func TestRace(t *testing.T) {
+	cache := NewCache(MIN_CACHE_SIZE)
+	inUse := 8
+	wg := sync.WaitGroup{}
+	var iters int64 = 1000
+
+	wg.Add(6)
+	addFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			err := cache.SetInt(int64(mrand.Intn(inUse)), []byte("abc"), 1)
+			if err != nil {
+				t.Errorf("err: %s", err)
+			}
+		}
+		wg.Done()
+	}
+	getFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			_, _ = cache.GetInt(int64(mrand.Intn(inUse))) //it will likely error w/ delFunc running too
+		}
+		wg.Done()
+	}
+	delFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.DelInt(int64(mrand.Intn(inUse)))
+		}
+		wg.Done()
+	}
+	evacFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			_ = cache.EvacuateCount()
+			_ = cache.ExpiredCount()
+			_ = cache.EntryCount()
+			_ = cache.AverageAccessTime()
+			_ = cache.HitCount()
+			_ = cache.LookupCount()
+			_ = cache.HitRate()
+			_ = cache.OverwriteCount()
+		}
+		wg.Done()
+	}
+	resetFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.ResetStatistics()
+		}
+		wg.Done()
+	}
+	clearFunc := func() {
+		var i int64
+		for i = 0; i < iters; i++ {
+			cache.Clear()
+		}
+		wg.Done()
+	}
+
+	go addFunc()
+	go getFunc()
+	go delFunc()
+	go evacFunc()
+	go resetFunc()
+	go clearFunc()
+	wg.Wait()
 }
 
 func BenchmarkCacheSet(b *testing.B) {
