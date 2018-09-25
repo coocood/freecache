@@ -212,9 +212,13 @@ func (cache *Cache) Resize(newSize int) {
 		size = MIN_CACHE_SIZE
 	}
 
+	if size == cache.cacheSize {
+		return
+	}
+
 	for i := 0; i < SEGMENT_NUMBER; i++ {
 		cache.locks[i].Lock()
-		if size >= cache.cacheSize {
+		if size > cache.cacheSize {
 			cache.segments[i].resize(size / SEGMENT_NUMBER)
 		} else {
 			//discard all data
