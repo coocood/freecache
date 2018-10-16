@@ -567,3 +567,24 @@ func BenchmarkHashFunc(b *testing.B) {
 		hashFunc(key)
 	}
 }
+
+func TestConcurrentGetTTL(t *testing.T) {
+	cache := NewCache(256 * 1024 * 1024)
+	primaryKey := []byte("hello")
+	primaryVal := []byte("world")
+	cache.Set(primaryKey, primaryVal, 2)
+
+	// Do concurrent mutation by adding various keys.
+	for i := 0; i < 1000; i++ {
+		go func(idx int) {
+			keyValue := []byte(fmt.Sprintf("counter_%d", idx))
+			cache.Set(keyValue, keyValue, 0)
+		}(i)
+	}
+
+	// While trying to read the TTL.
+	_, err := cache.TTL(primaryKey)
+	if err != nil {
+		t.Fatalf("Failed to get the TTL with an error: %+v", err)
+	}
+}
