@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	// segmentSize represents the number of segments within a freecache instance.
-	segmentSize = 256
+	// segmentCount represents the number of segments within a freecache instance.
+	segmentCount = 256
 	// segmentAndOpVal is bitwise AND applied to the hashVal to find the segment id.
 	segmentAndOpVal = 255
 	minBufSize      = 512 * 1024
@@ -18,8 +18,8 @@ const (
 
 // Cache is a freecache instance.
 type Cache struct {
-	locks    [segmentSize]sync.Mutex
-	segments [segmentSize]segment
+	locks    [segmentCount]sync.Mutex
+	segments [segmentCount]segment
 }
 
 func hashFunc(data []byte) uint64 {
@@ -36,8 +36,8 @@ func NewCache(size int) (cache *Cache) {
 		size = minBufSize
 	}
 	cache = new(Cache)
-	for i := 0; i < segmentSize; i++ {
-		cache.segments[i] = newSegment(size/segmentSize, i)
+	for i := 0; i < segmentCount; i++ {
+		cache.segments[i] = newSegment(size/segmentCount, i)
 	}
 	return
 }
