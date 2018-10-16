@@ -71,7 +71,9 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 func (cache *Cache) TTL(key []byte) (timeLeft uint32, err error) {
 	hashVal := hashFunc(key)
 	segId := hashVal & 255
+	cache.locks[segId].Lock()
 	timeLeft, err = cache.segments[segId].ttl(key, hashVal)
+	cache.locks[segId].Unlock()
 	return
 }
 
