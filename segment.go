@@ -369,11 +369,12 @@ func (seg *segment) lookupByOff(slot []entryPtr, hash16 uint16, offset int64) (i
 }
 
 func (seg *segment) resetStatistics() {
-	atomic.StoreInt64(&seg.totalEvacuate, 0)
-	atomic.StoreInt64(&seg.totalExpired, 0)
-	atomic.StoreInt64(&seg.overwrites, 0)
+	atomic.StoreInt64(&seg.entryCount, 0)
 	atomic.StoreInt64(&seg.hitCount, 0)
 	atomic.StoreInt64(&seg.missCount, 0)
+	atomic.StoreInt64(&seg.overwrites, 0)
+	atomic.StoreInt64(&seg.totalEvacuate, 0)
+	atomic.StoreInt64(&seg.totalExpired, 0)
 }
 
 func (seg *segment) clear() {
@@ -386,12 +387,9 @@ func (seg *segment) clear() {
 		seg.slotLens[i] = 0
 	}
 
-	atomic.StoreInt64(&seg.hitCount, 0)
-	atomic.StoreInt64(&seg.missCount, 0)
-	atomic.StoreInt64(&seg.entryCount, 0)
+	// These fields are not stats.
 	atomic.StoreInt64(&seg.totalCount, 0)
 	atomic.StoreInt64(&seg.totalTime, 0)
-	atomic.StoreInt64(&seg.totalEvacuate, 0)
-	atomic.StoreInt64(&seg.totalExpired, 0)
-	atomic.StoreInt64(&seg.overwrites, 0)
+
+	seg.resetStatistics()
 }

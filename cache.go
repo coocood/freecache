@@ -12,7 +12,7 @@ const (
 	// segmentCount represents the number of segments within a freecache instance.
 	segmentCount = 256
 	// segmentAndOpVal is bitwise AND applied to the hashVal to find the segment id.
-	segmentAndOpVal = 255
+	segmentAndOpVal = segmentCount - 1
 	minBufSize      = 512 * 1024
 )
 
@@ -57,11 +57,7 @@ func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 
 // Get returns the value or not found error.
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
-	hashVal := hashFunc(key)
-	segID := hashVal & segmentAndOpVal
-	cache.locks[segID].Lock()
-	value, _, err = cache.segments[segID].get(key, hashVal)
-	cache.locks[segID].Unlock()
+	value, _, err = cache.GetWithExpiration(key)
 	return
 }
 
@@ -104,9 +100,8 @@ func (cache *Cache) SetInt(key int64, value []byte, expireSeconds int) (err erro
 
 // GetInt returns the value for an integer within the cache or a not found error.
 func (cache *Cache) GetInt(key int64) (value []byte, err error) {
-	var bKey [8]byte
-	binary.LittleEndian.PutUint64(bKey[:], uint64(key))
-	return cache.Get(bKey[:])
+	value, _, err = cache.GetIntWithExpiration(key)
+	return
 }
 
 // GetIntWithExpiration returns the value and expiration or a not found error.
