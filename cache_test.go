@@ -511,17 +511,36 @@ func BenchmarkMapSet(b *testing.B) {
 }
 
 func BenchmarkCacheGet(b *testing.B) {
+	b.ReportAllocs()
 	b.StopTimer()
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
+	buf := make([]byte, 64)
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], make([]byte, 8), 0)
+		cache.Set(key[:], buf, 0)
 	}
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		cache.Get(key[:])
+	}
+}
+
+func BenchmarkCacheGetWithBuf(b *testing.B) {
+	b.ReportAllocs()
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	var key [8]byte
+	buf := make([]byte, 64)
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], buf, 0)
+	}
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.GetWithBuf(key[:], buf)
 	}
 }
 

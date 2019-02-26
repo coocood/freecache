@@ -189,7 +189,7 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 	return
 }
 
-func (seg *segment) get(key []byte, hashVal uint64) (value []byte, expireAt uint32, err error) {
+func (seg *segment) get(key, buf []byte, hashVal uint64) (value []byte, expireAt uint32, err error) {
 	slotId := uint8(hashVal >> 8)
 	hash16 := uint16(hashVal >> 16)
 	slot := seg.getSlot(slotId)
@@ -217,7 +217,11 @@ func (seg *segment) get(key []byte, hashVal uint64) (value []byte, expireAt uint
 	atomic.AddInt64(&seg.totalTime, int64(now-hdr.accessTime))
 	hdr.accessTime = now
 	seg.rb.WriteAt(hdrBuf[:], ptr.offset)
-	value = make([]byte, hdr.valLen)
+	if cap(buf) >= int(hdr.valLen) {
+		value = buf[:hdr.valLen]
+	} else {
+		value = make([]byte, hdr.valLen)
+	}
 
 	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 	atomic.AddInt64(&seg.hitCount, 1)
