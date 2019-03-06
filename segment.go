@@ -19,7 +19,7 @@ var ErrNotFound = errors.New("Entry not found")
 var randLock = &sync.Mutex{}
 var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-func Random(min, max int) int {
+func random(min, max int) int {
 	randLock.Lock()
 	defer randLock.Unlock()
 	return rng.Intn(max-min) + min
@@ -200,6 +200,26 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 	return
 }
 
+func (seg *segment) getHeader(ptr *entryPtr, slot []entryPtr, idx int) (hdr *entryHdr, err error) {
+	now := uint32(time.Now().Unix())
+
+	var hdrBuf [ENTRY_HDR_SIZE]byte
+	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
+	hdr = (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
+
+	if hdr.expireAt != 0 && hdr.expireAt <= now {
+		seg.delEntryPtr(hdr.slotId, slot, idx)
+		atomic.AddInt64(&seg.totalExpired, 1)
+		atomic.AddInt64(&seg.missCount, 1)
+		return nil, ErrNotFound
+	}
+	atomic.AddInt64(&seg.totalTime, int64(now-hdr.accessTime))
+	hdr.accessTime = now
+	seg.rb.WriteAt(hdrBuf[:], ptr.offset)
+
+	return hdr, nil
+}
+
 func (seg *segment) get(key, buf []byte, hashVal uint64) (value []byte, expireAt uint32, err error) {
 	slotId := uint8(hashVal >> 8)
 	hash16 := uint16(hashVal >> 16)
@@ -212,67 +232,51 @@ func (seg *segment) get(key, buf []byte, hashVal uint64) (value []byte, expireAt
 	}
 	ptr := &slot[idx]
 
-	hdr, err := seg.getHeader(ptr)
+	hdr, err := seg.getHeader(ptr, slot, idx)
 	if err != nil {
 		return nil, 0, err
 	}
+	expireAt = hdr.expireAt
 
-	value = make([]byte, hdr.valLen)
-
-	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
-	atomic.AddInt64(&seg.hitCount, 1)
-
-	return
-}
-
-func (seg *segment) getRandomValue() (key []byte, value []byte, expireAt uint32, err error) {
-	slotIdx := Random(0, 256)
-	slotOff := int32(slotIdx) * seg.slotCap
-	slot := seg.slotsData[slotOff : slotOff+seg.slotLens[slotIdx] : slotOff+seg.slotCap]
-
-	ptr := seg.getRandomSlotPtr(slot)
-	if ptr == nil {
-		return nil, nil, 0, ErrNotFound
-	}
-
-	hdr, err := seg.getHeader(ptr)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
-	key = make([]byte, hdr.keyLen)
-	value = make([]byte, hdr.valLen)
-
-	seg.rb.ReadAt(key, ptr.offset+ENTRY_HDR_SIZE)
-	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
-	atomic.AddInt64(&seg.hitCount, 1)
-
-	return key, value, hdr.expireAt, nil
-}
-
-func (seg *segment) getHeader(ptr *entryPtr) (hdr *entryHdr, err error) {
-	now := uint32(time.Now().Unix())
-
-	var hdrBuf [ENTRY_HDR_SIZE]byte
-	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
-	hdr = (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
-
-	if hdr.expireAt != 0 && hdr.expireAt <= now {
-		seg.delEntryPtr(slotId, slot, idx)
-		atomic.AddInt64(&seg.totalExpired, 1)
-		atomic.AddInt64(&seg.missCount, 1)
-		return nil, ErrNotFound
-	}
-	atomic.AddInt64(&seg.totalTime, int64(now-hdr.accessTime))
-	hdr.accessTime = now
-	seg.rb.WriteAt(hdrBuf[:], ptr.offset)
 	if cap(buf) >= int(hdr.valLen) {
 		value = buf[:hdr.valLen]
 	} else {
 		value = make([]byte, hdr.valLen)
 	}
 
-	return hdr, nil
+	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
+	atomic.AddInt64(&seg.hitCount, 1)
+	return
+}
+
+func (seg *segment) getRandomValue(buf []byte) (key []byte, value []byte, expireAt uint32, err error) {
+	slotId := uint8(random(0, 256))
+	slot := seg.getSlot(slotId)
+
+	ptr, idx := seg.getRandomSlotPtr(slot)
+	if ptr == nil {
+		return nil, nil, 0, ErrNotFound
+	}
+
+	hdr, err := seg.getHeader(ptr, slot, idx)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	expireAt = hdr.expireAt
+
+	key = make([]byte, hdr.keyLen)
+
+	if cap(buf) >= int(hdr.valLen) {
+		value = buf[:hdr.valLen]
+	} else {
+		value = make([]byte, hdr.valLen)
+	}
+
+	seg.rb.ReadAt(key, ptr.offset+ENTRY_HDR_SIZE)
+	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
+	atomic.AddInt64(&seg.hitCount, 1)
+
+	return
 }
 
 func (seg *segment) del(key []byte, hashVal uint64) (affected bool) {
@@ -414,12 +418,13 @@ func (seg *segment) lookupByOff(slot []entryPtr, hash16 uint16, offset int64) (i
 	return
 }
 
-func (seg *segment) getRandomSlotPtr(slot []entryPtr) (ptr *entryPtr) {
+func (seg *segment) getRandomSlotPtr(slot []entryPtr) (ptr *entryPtr, idx int) {
 	lenSlot := len(slot)
 	if len(slot) == 0 {
-		return nil
+		return nil, 0
 	}
-	return &slot[Random(0, lenSlot)]
+	idx = random(0, lenSlot)
+	return &slot[idx], idx
 }
 
 func (seg *segment) resetStatistics() {

@@ -88,18 +88,38 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 
 // GetRandomValue returns a random value or not found error.
 func (cache *Cache) GetRandomValue() (key []byte, value []byte, err error) {
-	segID := Random(0, 256)
+	segID := random(0, segmentCount)
 	cache.locks[segID].Lock()
-	key, value, _, err = cache.segments[segID].getRandomValue()
+	key, value, _, err = cache.segments[segID].getRandomValue(nil)
+	cache.locks[segID].Unlock()
+	return
+}
+
+// GetRandomValueWithBuf copies a random value to the buf or returns not found error.
+// This method doesn't allocate memory when the capacity of buf is greater or equal to value.
+func (cache *Cache) GetRandomValueWithBuf(buf []byte) (key []byte, value []byte, err error) {
+	segID := random(0, segmentCount)
+	cache.locks[segID].Lock()
+	key, value, _, err = cache.segments[segID].getRandomValue(buf)
 	cache.locks[segID].Unlock()
 	return
 }
 
 // GetRandomValueWithExpiration returns a random value with expiration or not found error.
 func (cache *Cache) GetRandomValueWithExpiration() (key []byte, value []byte, expireAt uint32, err error) {
-	segID := Random(0, 256)
+	segID := random(0, segmentCount)
 	cache.locks[segID].Lock()
-	key, value, expireAt, err = cache.segments[segID].getRandomValue()
+	key, value, expireAt, err = cache.segments[segID].getRandomValue(nil)
+	cache.locks[segID].Unlock()
+	return
+}
+
+// GetRandomValueWithExpirationBuf copies a random value to the buf with expiration or not found error.
+// This method doesn't allocate memory when the capacity of buf is greater or equal to value.
+func (cache *Cache) GetRandomValueWithExpirationBuf(buf []byte) (key []byte, value []byte, expireAt uint32, err error) {
+	segID := random(0, segmentCount)
+	cache.locks[segID].Lock()
+	key, value, expireAt, err = cache.segments[segID].getRandomValue(buf)
 	cache.locks[segID].Unlock()
 	return
 }
