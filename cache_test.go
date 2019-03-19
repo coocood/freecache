@@ -585,6 +585,7 @@ func BenchmarkParallelCacheGet(b *testing.B) {
 		cache.Set(key[:], buf, 0)
 	}
 	b.StartTimer()
+
 	b.RunParallel(func(pb *testing.PB) {
 		counter := 0
 		b.ReportAllocs()
@@ -624,6 +625,7 @@ func BenchmarkParallelCacheGetWithBuf(b *testing.B) {
 		cache.Set(key[:], buf, 0)
 	}
 	b.StartTimer()
+
 	b.RunParallel(func(pb *testing.PB) {
 		counter := 0
 		b.ReportAllocs()
