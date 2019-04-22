@@ -492,6 +492,38 @@ func TestRace(t *testing.T) {
 	wg.Wait()
 }
 
+func TestConcurrentSet(t *testing.T) {
+	var wg sync.WaitGroup
+	cache := NewCache(256 * 1024 * 1024)
+	N := 4000
+	routines := 50
+	wg.Add(routines)
+	for k := 0; k < routines; k++ {
+		go func(fact int) {
+			defer wg.Done()
+			for i := N * fact; i < (fact+1)*N; i++ {
+				var key, value [8]byte
+
+				binary.LittleEndian.PutUint64(key[:], uint64(i))
+				binary.LittleEndian.PutUint64(value[:], uint64(i*2))
+				cache.Set(key[:], value[:], 0)
+			}
+		}(k)
+	}
+	wg.Wait()
+	for i := 0; i < routines*N; i++ {
+		var key, value [8]byte
+
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.GetWithBuf(key[:], value[:])
+		var num uint64
+		binary.Read(bytes.NewBuffer(value[:]), binary.LittleEndian, &num)
+		if num != uint64(i*2) {
+			t.Fatalf("key %d not equal to %d", int(num), (i * 2))
+		}
+	}
+}
+
 func BenchmarkCacheSet(b *testing.B) {
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
@@ -499,6 +531,21 @@ func BenchmarkCacheSet(b *testing.B) {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		cache.Set(key[:], make([]byte, 8), 0)
 	}
+}
+func BenchmarkParallelCacheSet(b *testing.B) {
+	cache := NewCache(256 * 1024 * 1024)
+	var key [8]byte
+
+	b.RunParallel(func(pb *testing.PB) {
+		counter := 0
+		b.ReportAllocs()
+
+		for pb.Next() {
+			binary.LittleEndian.PutUint64(key[:], uint64(counter))
+			cache.Set(key[:], make([]byte, 8), 0)
+			counter = counter + 1
+		}
+	})
 }
 
 func BenchmarkMapSet(b *testing.B) {
@@ -511,18 +558,83 @@ func BenchmarkMapSet(b *testing.B) {
 }
 
 func BenchmarkCacheGet(b *testing.B) {
+	b.ReportAllocs()
 	b.StopTimer()
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
+	buf := make([]byte, 64)
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], make([]byte, 8), 0)
+		cache.Set(key[:], buf, 0)
 	}
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		cache.Get(key[:])
 	}
+}
+
+func BenchmarkParallelCacheGet(b *testing.B) {
+	b.ReportAllocs()
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	var key [8]byte
+	buf := make([]byte, 64)
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], buf, 0)
+	}
+	b.StartTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		counter := 0
+		b.ReportAllocs()
+		for pb.Next() {
+			binary.LittleEndian.PutUint64(key[:], uint64(counter))
+			cache.Get(key[:])
+			counter = counter + 1
+		}
+	})
+}
+
+func BenchmarkCacheGetWithBuf(b *testing.B) {
+	b.ReportAllocs()
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	var key [8]byte
+	buf := make([]byte, 64)
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], buf, 0)
+	}
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.GetWithBuf(key[:], buf)
+	}
+}
+
+func BenchmarkParallelCacheGetWithBuf(b *testing.B) {
+	b.ReportAllocs()
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	var key [8]byte
+	buf := make([]byte, 64)
+	for i := 0; i < b.N; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], buf, 0)
+	}
+	b.StartTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		counter := 0
+		b.ReportAllocs()
+		for pb.Next() {
+			binary.LittleEndian.PutUint64(key[:], uint64(counter))
+			cache.GetWithBuf(key[:], buf)
+			counter = counter + 1
+		}
+	})
 }
 
 func BenchmarkCacheGetWithExpiration(b *testing.B) {
@@ -565,5 +677,26 @@ func BenchmarkHashFunc(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		hashFunc(key)
+	}
+}
+
+func TestConcurrentGetTTL(t *testing.T) {
+	cache := NewCache(256 * 1024 * 1024)
+	primaryKey := []byte("hello")
+	primaryVal := []byte("world")
+	cache.Set(primaryKey, primaryVal, 2)
+
+	// Do concurrent mutation by adding various keys.
+	for i := 0; i < 1000; i++ {
+		go func(idx int) {
+			keyValue := []byte(fmt.Sprintf("counter_%d", idx))
+			cache.Set(keyValue, keyValue, 0)
+		}(i)
+	}
+
+	// While trying to read the TTL.
+	_, err := cache.TTL(primaryKey)
+	if err != nil {
+		t.Fatalf("Failed to get the TTL with an error: %+v", err)
 	}
 }
