@@ -187,9 +187,6 @@ func (rb *RingBuf) Evacuate(off int64, length int) (newOff int64) {
 		if readEnd <= len(rb.data) {
 			n = copy(rb.data[rb.index:], rb.data[readOff:readEnd])
 			rb.index += n
-			if rb.index == len(rb.data) {
-				rb.index = copy(rb.data, rb.data[readOff+n:readEnd])
-			}
 		} else {
 			n = copy(rb.data[rb.index:], rb.data[readOff:])
 			rb.index += n
