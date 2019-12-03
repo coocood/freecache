@@ -60,7 +60,17 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
-	value, _, err = cache.segments[segID].get(key, nil, hashVal)
+	value, _, err = cache.segments[segID].get(key, nil, hashVal, false)
+	cache.locks[segID].Unlock()
+	return
+}
+
+// Peek returns the value or not found error, without updating access time or counters.
+func (cache *Cache) Peek(key []byte) (value []byte, err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	value, _, err = cache.segments[segID].get(key, nil, hashVal, true)
 	cache.locks[segID].Unlock()
 	return
 }
@@ -71,7 +81,7 @@ func (cache *Cache) GetWithBuf(key, buf []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
-	value, _, err = cache.segments[segID].get(key, buf, hashVal)
+	value, _, err = cache.segments[segID].get(key, buf, hashVal, false)
 	cache.locks[segID].Unlock()
 	return
 }
@@ -81,7 +91,7 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
-	value, expireAt, err = cache.segments[segID].get(key, nil, hashVal)
+	value, expireAt, err = cache.segments[segID].get(key, nil, hashVal, false)
 	cache.locks[segID].Unlock()
 	return
 }
