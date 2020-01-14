@@ -14,6 +14,12 @@ var ErrLargeKey = errors.New("The key is larger than 65535")
 var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
 var ErrNotFound = errors.New("Entry not found")
 
+// timer holds representation of current time.
+type Timer interface {
+	// Give current time (in seconds)
+	Now() uint32
+}
+
 // entry pointer struct points to an entry in ring buffer
 type entryPtr struct {
 	offset   int64  // entry offset in ring buffer
@@ -46,6 +52,7 @@ type segment struct {
 	entryCount    int64
 	totalCount    int64      // number of entries in ring buffer, including deleted entries.
 	totalTime     int64      // used to calculate least recent used entry.
+	timer         Timer      // Timer giving current time
 	totalEvacuate int64      // used for debug
 	totalExpired  int64      // used for debug
 	overwrites    int64      // used for debug
@@ -55,9 +62,16 @@ type segment struct {
 	slotsData     []entryPtr // shared by all 256 slots
 }
 
-func newSegment(bufSize int, segId int) (seg segment) {
+type defaultTimer struct{}
+
+func (timer defaultTimer) Now() uint32 {
+	return uint32(time.Now().Unix())
+}
+
+func newSegment(bufSize int, segId int, timer Timer) (seg segment) {
 	seg.rb = NewRingBuf(bufSize, 0)
 	seg.segId = segId
+	seg.timer = timer
 	seg.vacuumLen = int64(bufSize)
 	seg.slotCap = 1
 	seg.slotsData = make([]entryPtr, 256*seg.slotCap)
@@ -73,7 +87,7 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		// Do not accept large entry.
 		return ErrLargeEntry
 	}
-	now := uint32(time.Now().Unix())
+	now := seg.timer.Now()
 	expireAt := uint32(0)
 	if expireSeconds > 0 {
 		expireAt = now + uint32(expireSeconds)
@@ -207,7 +221,7 @@ func (seg *segment) get(key, buf []byte, hashVal uint64, peek bool) (value []byt
 	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
 	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
 	if !peek {
-		now := uint32(time.Now().Unix())
+		now := seg.timer.Now()
 		expireAt = hdr.expireAt
 
 		if hdr.expireAt != 0 && hdr.expireAt <= now {
@@ -256,7 +270,7 @@ func (seg *segment) ttl(key []byte, hashVal uint64) (timeLeft uint32, err error)
 		return
 	}
 	ptr := &slot[idx]
-	now := uint32(time.Now().Unix())
+	now := seg.timer.Now()
 
 	var hdrBuf [ENTRY_HDR_SIZE]byte
 	seg.rb.ReadAt(hdrBuf[:], ptr.offset)

@@ -32,12 +32,20 @@ func hashFunc(data []byte) uint64 {
 // `debug.SetGCPercent()`, set it to a much smaller value
 // to limit the memory consumption and GC pause time.
 func NewCache(size int) (cache *Cache) {
+	return NewCacheCustomTimer(size, defaultTimer{})
+}
+
+// NewCacheCustomTimer returns new cache with custom timer.
+func NewCacheCustomTimer(size int, timer Timer) (cache *Cache) {
 	if size < minBufSize {
 		size = minBufSize
 	}
+	if timer == nil {
+		timer = defaultTimer{}
+	}
 	cache = new(Cache)
 	for i := 0; i < segmentCount; i++ {
-		cache.segments[i] = newSegment(size/segmentCount, i)
+		cache.segments[i] = newSegment(size/segmentCount, i, timer)
 	}
 	return
 }
