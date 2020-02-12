@@ -130,7 +130,30 @@ func TestOverwrite(t *testing.T) {
 	if count := cache.OverwriteCount(); count != 3 {
 		t.Error("overwrite count is", count, "expected ", 3)
 	}
+}
 
+func TestGetOrSet(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("abcd")
+	val := []byte("efgh")
+
+	r, err := cache.GetOrSet(key, val, 10)
+	if err != nil || r != nil {
+		t.Errorf("Expected to have nils: value=%v, err=%v", string(r), err)
+	}
+
+	// check entry
+	r, err = cache.Get(key)
+	if err != nil || string(r) != "efgh" {
+		t.Errorf("Expected to have val=%v and err != nil, got: value=%v, err=%v", string(val), string(r), err)
+	}
+
+	// call twice for the same key
+	val = []byte("xxxx")
+	r, err = cache.GetOrSet(key, val, 10)
+	if err != nil || string(r) != "efgh" {
+		t.Errorf("Expected to get old record, got: value=%v, err=%v", string(r), err)
+	}
 }
 
 func TestGetWithExpiration(t *testing.T) {
