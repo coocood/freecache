@@ -63,6 +63,17 @@ func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 	return
 }
 
+// Touch updates the expiration time of an existing key. expireSeconds <= 0 means no expire,
+// but it can be evicted when cache is full.
+func (cache *Cache) Touch(key []byte, expireSeconds int) (err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	err = cache.segments[segID].touch(key, hashVal, expireSeconds)
+	cache.locks[segID].Unlock()
+	return
+}
+
 // Get returns the value or not found error.
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
@@ -243,6 +254,14 @@ func (cache *Cache) HitRate() float64 {
 func (cache *Cache) OverwriteCount() (overwriteCount int64) {
 	for i := range cache.segments {
 		overwriteCount += atomic.LoadInt64(&cache.segments[i].overwrites)
+	}
+	return
+}
+
+// TouchedCount indicates the number of times entries have had their expiration time extended.
+func (cache *Cache) TouchedCount() (touchedCount int64) {
+	for i := range cache.segments {
+		touchedCount += atomic.LoadInt64(&cache.segments[i].touched)
 	}
 	return
 }

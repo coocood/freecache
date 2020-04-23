@@ -56,6 +56,7 @@ type segment struct {
 	totalEvacuate int64      // used for debug
 	totalExpired  int64      // used for debug
 	overwrites    int64      // used for debug
+	touched       int64      // used for debug
 	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
 	slotLens      [256]int32 // The actual length for every slot.
 	slotCap       int32      // max number of entry pointers a slot can hold.
@@ -160,6 +161,50 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 	atomic.AddInt64(&seg.totalTime, int64(now))
 	atomic.AddInt64(&seg.totalCount, 1)
 	seg.vacuumLen -= entryLen
+	return
+}
+
+func (seg *segment) touch(key []byte, hashVal uint64, expireSeconds int) (err error) {
+	if len(key) > 65535 {
+		return ErrLargeKey
+	}
+
+	slotId := uint8(hashVal >> 8)
+	hash16 := uint16(hashVal >> 16)
+
+	slot := seg.getSlot(slotId)
+	idx, match := seg.lookup(slot, hash16, key)
+	if !match {
+		err = ErrNotFound
+		return
+	}
+	matchedPtr := &slot[idx]
+
+	var hdrBuf [ENTRY_HDR_SIZE]byte
+	seg.rb.ReadAt(hdrBuf[:], matchedPtr.offset)
+	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
+
+	now := seg.timer.Now()
+	if hdr.expireAt != 0 && hdr.expireAt <= now {
+		seg.delEntryPtr(slotId, slot, idx)
+		atomic.AddInt64(&seg.totalExpired, 1)
+		err = ErrNotFound
+		atomic.AddInt64(&seg.missCount, 1)
+		return
+	}
+
+	expireAt := uint32(0)
+	if expireSeconds > 0 {
+		expireAt = now + uint32(expireSeconds)
+	}
+
+	originAccessTime := hdr.accessTime
+	hdr.accessTime = now
+	hdr.expireAt = expireAt
+	//in place overwrite
+	atomic.AddInt64(&seg.totalTime, int64(hdr.accessTime)-int64(originAccessTime))
+	seg.rb.WriteAt(hdrBuf[:], matchedPtr.offset)
+	atomic.AddInt64(&seg.touched, 1)
 	return
 }
 
