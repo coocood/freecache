@@ -88,6 +88,21 @@ func (cache *Cache) GetOrSet(key, value []byte, expireSeconds int) (retValue []b
 	return
 }
 
+// GetWithBufOrSet copies the existing value to the buf or if record doesn't exist
+// it sets a new key, value and expiration for a cache entry and stores it in the cache, returns nil in that case
+func (cache *Cache) GetWithBufOrSet(key, value, buf []byte, expireSeconds int) (retValue []byte, err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
+
+	retValue, _, err = cache.segments[segID].get(key, buf, hashVal, false)
+	if err != nil {
+		err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
+	}
+	return
+}
+
 // Peek returns the value or not found error, without updating access time or counters.
 func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
