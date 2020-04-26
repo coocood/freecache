@@ -225,7 +225,48 @@ func TestTTL(t *testing.T) {
 		t.Error("err should be nil", err.Error())
 	}
 	if ttl != 1 {
-		t.Fatalf("ttl should be 1, but %d return", ttl)
+		t.Fatalf("ttl should be 1, but %d returned", ttl)
+	}
+}
+
+func TestTouch(t *testing.T) {
+	cache := NewCache(1024)
+	key1 := []byte("abcd")
+	val1 := []byte("efgh")
+	key2 := []byte("ijkl")
+	val2 := []byte("mnop")
+	err := cache.Set(key1, val1, 1)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	err = cache.Set(key2, val2, 1)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	if touched := cache.TouchedCount(); touched != 0 {
+		t.Fatalf("touched count should be 0, but %d returned", touched)
+	}
+	err = cache.Touch(key1, 2)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	time.Sleep(time.Second)
+	ttl, err := cache.TTL(key1)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	if ttl != 1 {
+		t.Fatalf("ttl should be 1, but %d returned", ttl)
+	}
+	if touched := cache.TouchedCount(); touched != 1 {
+		t.Fatalf("touched count should be 1, but %d returned", touched)
+	}
+	err = cache.Touch(key2, 2)
+	if err != ErrNotFound {
+		t.Error("error should be ErrNotFound after expiring")
+	}
+	if touched := cache.TouchedCount(); touched != 1 {
+		t.Fatalf("touched count should be 1, but %d returned", touched)
 	}
 }
 
