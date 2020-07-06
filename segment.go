@@ -236,6 +236,8 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 			seg.vacuumLen += oldEntryLen
 			if expired {
 				atomic.AddInt64(&seg.totalExpired, 1)
+			} else {
+				atomic.AddInt64(&seg.totalEvacuate, 1)
 			}
 		} else {
 			// evacuate an old entry that has been accessed recently for better cache hit rate.

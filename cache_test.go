@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"log"
 	mrand "math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -585,6 +587,29 @@ func TestConcurrentSet(t *testing.T) {
 		if num != uint64(i*2) {
 			t.Fatalf("key %d not equal to %d", int(num), (i * 2))
 		}
+	}
+}
+
+func TestEvacuateCount(t *testing.T) {
+	cache := NewCache(1024 * 1024)
+	n := 100000
+	for i := 0; i < n; i++ {
+		err := cache.Set([]byte(strconv.Itoa(i)), []byte("A"), 0)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	missingItems := 0
+	for i := 0; i < n; i++ {
+		res, err := cache.Get([]byte(strconv.Itoa(i)))
+		if err == ErrNotFound || (err == nil && string(res) != "A") {
+			missingItems++
+		} else if err != nil {
+			log.Fatal(err)
+		}
+	}
+	if cache.EntryCount()+cache.EvacuateCount() != int64(n) {
+		t.Fatal(cache.EvacuateCount(), cache.EvacuateCount())
 	}
 }
 
