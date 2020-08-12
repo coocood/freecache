@@ -3,7 +3,6 @@ package freecache
 import (
 	"errors"
 	"sync/atomic"
-	"time"
 	"unsafe"
 )
 
@@ -13,12 +12,6 @@ const ENTRY_HDR_SIZE = 24
 var ErrLargeKey = errors.New("The key is larger than 65535")
 var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
 var ErrNotFound = errors.New("Entry not found")
-
-// timer holds representation of current time.
-type Timer interface {
-	// Give current time (in seconds)
-	Now() uint32
-}
 
 // entry pointer struct points to an entry in ring buffer
 type entryPtr struct {
@@ -61,12 +54,6 @@ type segment struct {
 	slotLens      [256]int32 // The actual length for every slot.
 	slotCap       int32      // max number of entry pointers a slot can hold.
 	slotsData     []entryPtr // shared by all 256 slots
-}
-
-type defaultTimer struct{}
-
-func (timer defaultTimer) Now() uint32 {
-	return uint32(time.Now().Unix())
 }
 
 func newSegment(bufSize int, segId int, timer Timer) (seg segment) {
