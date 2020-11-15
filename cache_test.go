@@ -83,6 +83,12 @@ func TestFreeCache(t *testing.T) {
 				t.Errorf("value is %v, expected %v", string(value), expectedValStr)
 			}
 		}
+		err = cache.GetFn([]byte(keyStr), func(val []byte) error {
+			if string(val) != expectedValStr {
+				t.Errorf("getfn: value is %v, expected %v", string(val), expectedValStr)
+			}
+			return nil
+		})
 	}
 
 	t.Logf("hit rate is %v, evacuates %v, entries %v, average time %v, expire count %v\n",
@@ -155,6 +161,15 @@ func TestGetOrSet(t *testing.T) {
 	r, err = cache.GetOrSet(key, val, 10)
 	if err != nil || string(r) != "efgh" {
 		t.Errorf("Expected to get old record, got: value=%v, err=%v", string(r), err)
+	}
+	err = cache.GetFn(key, func(val []byte) error {
+		if string(val) != "efgh" {
+			t.Errorf("getfn: Expected to get old record, got: value=%v, err=%v", string(r), err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("did not expect error from GetFn, got: %s", err)
 	}
 }
 
@@ -616,6 +631,7 @@ func TestEvacuateCount(t *testing.T) {
 func BenchmarkCacheSet(b *testing.B) {
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		cache.Set(key[:], make([]byte, 8), 0)
@@ -640,6 +656,7 @@ func BenchmarkParallelCacheSet(b *testing.B) {
 func BenchmarkMapSet(b *testing.B) {
 	m := make(map[string][]byte)
 	var key [8]byte
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		m[string(key[:])] = make([]byte, 8)
@@ -647,101 +664,120 @@ func BenchmarkMapSet(b *testing.B) {
 }
 
 func BenchmarkCacheGet(b *testing.B) {
+	cache, count := populateCache()
+
+	b.ResetTimer()
 	b.ReportAllocs()
-	b.StopTimer()
-	cache := NewCache(256 * 1024 * 1024)
+
 	var key [8]byte
-	buf := make([]byte, 64)
 	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], buf, 0)
+		binary.LittleEndian.PutUint64(key[:], uint64(i%count))
+		_, _ = cache.Get(key[:])
 	}
-	b.StartTimer()
+	b.Logf("b.N: %d; hit rate: %f", b.N, cache.HitRate())
+}
+
+func populateCache() (*Cache, int) {
+	var (
+		cache = NewCache(256 * 1024 * 1024)
+		buf   = make([]byte, 64)
+		key   [8]byte
+	)
+
+	// number of entries that can fit with the above parameters before an
+	// eviction is needed, with the standard hash function and sequential
+	// uint64 keys.
+	const maxEntries = 2739652
+	for i := 0; i < maxEntries; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		_ = cache.Set(key[:], buf, 0)
+	}
+	return cache, int(cache.EntryCount())
+}
+
+func BenchmarkCacheGetFn(b *testing.B) {
+	cache, count := populateCache()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	fn := func(val []byte) error {
+		_ = val
+		return nil
+	}
+
+	var key [8]byte
 	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Get(key[:])
+		binary.LittleEndian.PutUint64(key[:], uint64(i%count))
+		_ = cache.GetFn(key[:], fn)
 	}
+	b.Logf("b.N: %d; hit rate: %f", b.N, cache.HitRate())
 }
 
 func BenchmarkParallelCacheGet(b *testing.B) {
+	cache, count := populateCache()
+
+	b.ResetTimer()
 	b.ReportAllocs()
-	b.StopTimer()
-	cache := NewCache(256 * 1024 * 1024)
-	var key [8]byte
-	buf := make([]byte, 64)
-	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], buf, 0)
-	}
-	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		counter := 0
-		b.ReportAllocs()
-		for pb.Next() {
-			binary.LittleEndian.PutUint64(key[:], uint64(counter))
-			cache.Get(key[:])
-			counter = counter + 1
+		var key [8]byte
+		for i := 0; pb.Next(); i++ {
+			binary.LittleEndian.PutUint64(key[:], uint64(i%count))
+			_, _ = cache.Get(key[:])
 		}
 	})
+	b.Logf("b.N: %d; hit rate: %f", b.N, cache.HitRate())
 }
 
 func BenchmarkCacheGetWithBuf(b *testing.B) {
+	cache, count := populateCache()
+
+	b.ResetTimer()
 	b.ReportAllocs()
-	b.StopTimer()
-	cache := NewCache(256 * 1024 * 1024)
+
 	var key [8]byte
 	buf := make([]byte, 64)
 	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], buf, 0)
+		binary.LittleEndian.PutUint64(key[:], uint64(i%count))
+		_, _ = cache.GetWithBuf(key[:], buf)
 	}
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.GetWithBuf(key[:], buf)
-	}
+	b.Logf("b.N: %d; hit rate: %f", b.N, cache.HitRate())
 }
 
 func BenchmarkParallelCacheGetWithBuf(b *testing.B) {
+	cache, count := populateCache()
+
+	b.ResetTimer()
 	b.ReportAllocs()
-	b.StopTimer()
-	cache := NewCache(256 * 1024 * 1024)
-	var key [8]byte
-	buf := make([]byte, 64)
-	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], buf, 0)
-	}
-	b.StartTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		counter := 0
-		b.ReportAllocs()
-		for pb.Next() {
-			binary.LittleEndian.PutUint64(key[:], uint64(counter))
-			cache.GetWithBuf(key[:], buf)
-			counter = counter + 1
+		var key [8]byte
+		buf := make([]byte, 64)
+		for i := 0; pb.Next(); i++ {
+			binary.LittleEndian.PutUint64(key[:], uint64(i%count))
+			_, _ = cache.GetWithBuf(key[:], buf)
 		}
 	})
+	b.Logf("b.N: %d; hit rate: %f", b.N, cache.HitRate())
 }
 
 func BenchmarkCacheGetWithExpiration(b *testing.B) {
-	b.StopTimer()
-	cache := NewCache(256 * 1024 * 1024)
+	cache, count := populateCache()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
 	var key [8]byte
 	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.Set(key[:], make([]byte, 8), 0)
+		binary.LittleEndian.PutUint64(key[:], uint64(i%count))
+		_, _, _ = cache.GetWithExpiration(key[:])
 	}
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		binary.LittleEndian.PutUint64(key[:], uint64(i))
-		cache.GetWithExpiration(key[:])
-	}
+	b.Logf("b.N: %d; hit rate: %f", b.N, cache.HitRate())
 }
 
 func BenchmarkMapGet(b *testing.B) {
+	b.ReportAllocs()
 	b.StopTimer()
 	m := make(map[string][]byte)
 	var key [8]byte
@@ -764,6 +800,7 @@ func BenchmarkHashFunc(b *testing.B) {
 	rand.Read(key)
 
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		hashFunc(key)
 	}
