@@ -84,6 +84,24 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	return
 }
 
+// GetFn is equivalent to Get or GetWithBuf, but it attempts to be zero-copy,
+// calling the provided function with slice view over the current underlying
+// value of the key in memory. The slice is constrained in length and capacity.
+//
+// In moth cases, this method will not alloc a byte buffer. The only exception
+// is when the value wraps around the underlying segment ring buffer.
+//
+// The method will return ErrNotFound is there's a miss, and the function will
+// not be called. Errors returned by the function will be propagated.
+func (cache *Cache) GetFn(key []byte, fn func([]byte) error) (err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	err = cache.segments[segID].view(key, fn, hashVal, false)
+	cache.locks[segID].Unlock()
+	return
+}
+
 // GetOrSet returns existing value or if record doesn't exist
 // it sets a new key, value and expiration for a cache entry and stores it in the cache, returns nil in that case
 func (cache *Cache) GetOrSet(key, value []byte, expireSeconds int) (retValue []byte, err error) {
@@ -105,6 +123,24 @@ func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
 	value, _, err = cache.segments[segID].get(key, nil, hashVal, true)
+	cache.locks[segID].Unlock()
+	return
+}
+
+// PeekFn is equivalent to Peek, but it attempts to be zero-copy, calling the
+// provided function with slice view over the current underlying value of the
+// key in memory. The slice is constrained in length and capacity.
+//
+// In moth cases, this method will not alloc a byte buffer. The only exception
+// is when the value wraps around the underlying segment ring buffer.
+//
+// The method will return ErrNotFound is there's a miss, and the function will
+// not be called. Errors returned by the function will be propagated.
+func (cache *Cache) PeekFn(key []byte, fn func([]byte) error) (err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	err = cache.segments[segID].view(key, fn, hashVal, true)
 	cache.locks[segID].Unlock()
 	return
 }

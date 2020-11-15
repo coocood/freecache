@@ -80,6 +80,36 @@ func (rb *RingBuf) ReadAt(p []byte, off int64) (n int, err error) {
 	return
 }
 
+// Slice returns a slice of the supplied range of the ring buffer. It will
+// not alloc unless the requested range wraps the ring buffer.
+func (rb *RingBuf) Slice(off, length int64) ([]byte, error) {
+	if off > rb.end || off < rb.begin {
+		return nil, ErrOutOfRange
+	}
+	var readOff int
+	if rb.end-rb.begin < int64(len(rb.data)) {
+		readOff = int(off - rb.begin)
+	} else {
+		readOff = rb.index + int(off-rb.begin)
+	}
+	if readOff >= len(rb.data) {
+		readOff -= len(rb.data)
+	}
+	readEnd := readOff + int(length)
+	if readEnd <= len(rb.data) {
+		return rb.data[readOff:readEnd:readEnd], nil
+	}
+	buf := make([]byte, length)
+	n := copy(buf, rb.data[readOff:])
+	if n < int(length) {
+		n += copy(buf[n:], rb.data[:readEnd-len(rb.data)])
+	}
+	if n < int(length) {
+		return nil, io.EOF
+	}
+	return buf, nil
+}
+
 func (rb *RingBuf) Write(p []byte) (n int, err error) {
 	if len(p) > len(rb.data) {
 		err = ErrOutOfRange
