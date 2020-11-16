@@ -56,15 +56,7 @@ func (rb *RingBuf) ReadAt(p []byte, off int64) (n int, err error) {
 		err = ErrOutOfRange
 		return
 	}
-	var readOff int
-	if rb.end-rb.begin < int64(len(rb.data)) {
-		readOff = int(off - rb.begin)
-	} else {
-		readOff = rb.index + int(off-rb.begin)
-	}
-	if readOff >= len(rb.data) {
-		readOff -= len(rb.data)
-	}
+	readOff := rb.getDataOff(off)
 	readEnd := readOff + int(rb.end-off)
 	if readEnd <= len(rb.data) {
 		n = copy(p, rb.data[readOff:readEnd])
@@ -80,21 +72,26 @@ func (rb *RingBuf) ReadAt(p []byte, off int64) (n int, err error) {
 	return
 }
 
+func (rb *RingBuf) getDataOff(off int64) int {
+	var dataOff int
+	if rb.end-rb.begin < int64(len(rb.data)) {
+		dataOff = int(off - rb.begin)
+	} else {
+		dataOff = rb.index + int(off-rb.begin)
+	}
+	if dataOff >= len(rb.data) {
+		dataOff -= len(rb.data)
+	}
+	return dataOff
+}
+
 // Slice returns a slice of the supplied range of the ring buffer. It will
 // not alloc unless the requested range wraps the ring buffer.
 func (rb *RingBuf) Slice(off, length int64) ([]byte, error) {
 	if off > rb.end || off < rb.begin {
 		return nil, ErrOutOfRange
 	}
-	var readOff int
-	if rb.end-rb.begin < int64(len(rb.data)) {
-		readOff = int(off - rb.begin)
-	} else {
-		readOff = rb.index + int(off-rb.begin)
-	}
-	if readOff >= len(rb.data) {
-		readOff -= len(rb.data)
-	}
+	readOff := rb.getDataOff(off)
 	readEnd := readOff + int(length)
 	if readEnd <= len(rb.data) {
 		return rb.data[readOff:readEnd:readEnd], nil
@@ -135,15 +132,7 @@ func (rb *RingBuf) WriteAt(p []byte, off int64) (n int, err error) {
 		err = ErrOutOfRange
 		return
 	}
-	var writeOff int
-	if rb.end-rb.begin < int64(len(rb.data)) {
-		writeOff = int(off - rb.begin)
-	} else {
-		writeOff = rb.index + int(off-rb.begin)
-	}
-	if writeOff > len(rb.data) {
-		writeOff -= len(rb.data)
-	}
+	writeOff := rb.getDataOff(off)
 	writeEnd := writeOff + int(rb.end-off)
 	if writeEnd <= len(rb.data) {
 		n = copy(rb.data[writeOff:writeEnd], p)
@@ -160,15 +149,7 @@ func (rb *RingBuf) EqualAt(p []byte, off int64) bool {
 	if off+int64(len(p)) > rb.end || off < rb.begin {
 		return false
 	}
-	var readOff int
-	if rb.end-rb.begin < int64(len(rb.data)) {
-		readOff = int(off - rb.begin)
-	} else {
-		readOff = rb.index + int(off-rb.begin)
-	}
-	if readOff >= len(rb.data) {
-		readOff -= len(rb.data)
-	}
+	readOff := rb.getDataOff(off)
 	readEnd := readOff + len(p)
 	if readEnd <= len(rb.data) {
 		return bytes.Equal(p, rb.data[readOff:readEnd])
@@ -189,16 +170,7 @@ func (rb *RingBuf) Evacuate(off int64, length int) (newOff int64) {
 	if off+int64(length) > rb.end || off < rb.begin {
 		return -1
 	}
-	var readOff int
-	if rb.end-rb.begin < int64(len(rb.data)) {
-		readOff = int(off - rb.begin)
-	} else {
-		readOff = rb.index + int(off-rb.begin)
-	}
-	if readOff >= len(rb.data) {
-		readOff -= len(rb.data)
-	}
-
+	readOff := rb.getDataOff(off)
 	if readOff == rb.index {
 		// no copy evacuate
 		rb.index += length
