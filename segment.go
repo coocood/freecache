@@ -455,7 +455,7 @@ func (seg *segment) resetStatistics() {
 
 func (seg *segment) clear() {
 	bufSize := len(seg.rb.data)
-	seg.rb = NewRingBuf(bufSize, 0)
+	seg.rb.Reset(0)
 	seg.vacuumLen = int64(bufSize)
 	seg.slotCap = 1
 	seg.slotsData = make([]entryPtr, 256*seg.slotCap)
