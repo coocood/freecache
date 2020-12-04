@@ -21,10 +21,18 @@ type RingBuf struct {
 
 func NewRingBuf(size int, begin int64) (rb RingBuf) {
 	rb.data = make([]byte, size)
+	rb.Reset(begin)
+	return
+}
+
+// Reset the ring buffer
+//
+// Parameters:
+//     begin: beginning offset of the data stream
+func (rb *RingBuf) Reset(begin int64) {
 	rb.begin = begin
 	rb.end = begin
 	rb.index = 0
-	return
 }
 
 // Create a copy of the buffer.
