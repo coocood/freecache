@@ -44,7 +44,7 @@ got, err := cache.Get(key)
 if err != nil {
     fmt.Println(err)
 } else {
-    fmt.Println(string(got))
+    fmt.Printf("%s\n", got)
 }
 affected := cache.Del(key)
 fmt.Println("deleted key ", affected)
