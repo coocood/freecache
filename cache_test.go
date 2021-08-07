@@ -824,3 +824,23 @@ func TestConcurrentGetTTL(t *testing.T) {
 		t.Fatalf("Failed to get the TTL with an error: %+v", err)
 	}
 }
+
+func TestSetAndGet(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("abcd")
+	val1 := []byte("efgh")
+
+	_, found, _ := cache.SetAndGet(key, val1, 0)
+	if found == true {
+		t.Fatalf("SetAndGet unexpected found data")
+	}
+
+	val2 := []byte("ijkl")
+	rval, found, _ := cache.SetAndGet(key, val2, 0)
+	if found == false {
+		t.Fatalf("SetAndGet expected found data")
+	}
+	if string(val1) != string(rval) {
+		t.Fatalf("SetAndGet expected SetAndGet %s: got %s", string(val1), string(rval))
+	}
+}

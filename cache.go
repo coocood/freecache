@@ -117,6 +117,25 @@ func (cache *Cache) GetOrSet(key, value []byte, expireSeconds int) (retValue []b
 	return
 }
 
+// SetAndGet sets a key, value and expiration for a cache entry and stores it in the cache.
+// If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
+// the entry will not be written to the cache. expireSeconds <= 0 means no expire,
+// but it can be evicted when cache is full.  Returns existing value if record exists
+// with a bool value to indicate whether an existing record was found
+func (cache *Cache) SetAndGet(key, value []byte, expireSeconds int) (retValue []byte, found bool, err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
+
+	retValue, _, err = cache.segments[segID].get(key, nil, hashVal, false)
+	if err == nil {
+		found = true
+	}
+	err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
+	return
+}
+
 // Peek returns the value or not found error, without updating access time or counters.
 func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
