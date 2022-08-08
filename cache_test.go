@@ -4,15 +4,44 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	mrand "math/rand"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// mockTimer is a mock for Timer contract.
+type mockTimer struct {
+	nowCallsCnt uint32        // stores the number of times Now() was called
+	nowCallback func() uint32 // callback to be executed inside Now()
+}
+
+// Now mock logic.
+func (mock *mockTimer) Now() uint32 {
+	atomic.AddUint32(&mock.nowCallsCnt, 1)
+	if mock.nowCallback != nil {
+		return mock.nowCallback()
+	}
+
+	return uint32(time.Now().Unix())
+}
+
+// SetNowCallback sets the callback to be executed inside Now().
+// You can control the return value this way.
+func (mock *mockTimer) SetNowCallback(callback func() uint32) {
+	mock.nowCallback = callback
+}
+
+// nowCallsCount returns the number of times Now() was called.
+func (mock *mockTimer) NowCallsCount() int {
+	return int(atomic.LoadUint32(&mock.nowCallsCnt))
+}
 
 func TestFreeCache(t *testing.T) {
 	cache := NewCache(1024)
@@ -229,20 +258,135 @@ func TestExpire(t *testing.T) {
 }
 
 func TestTTL(t *testing.T) {
-	cache := NewCache(1024)
-	key := []byte("abcd")
-	val := []byte("efgh")
-	err := cache.Set(key, val, 2)
-	if err != nil {
-		t.Error("err should be nil", err.Error())
+	t.Run("with no expire key", testTTLWithNoExpireKey)
+	t.Run("with expire key, not yet expired", testTTLWithNotYetExpiredKey)
+	t.Run("with expire key, expired", testTTLWithExpiredKey)
+	t.Run("with not found key", testTTLWithNotFoundKey)
+}
+
+func testTTLWithNoExpireKey(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	var now uint32 = 1659954367
+	timer := new(mockTimer)
+	timer.SetNowCallback(func() uint32 {
+		return now
+	})
+	cache := NewCacheCustomTimer(512*1024, timer)
+	key := []byte("test-key")
+	value := []byte("this key does not expire")
+	expireSeconds := 0
+	if err := cache.Set(key, value, expireSeconds); err != nil {
+		t.Fatalf("prerequisite failed: could not set the key to query ttl for: %v", err)
 	}
-	time.Sleep(time.Second)
+
+	// act
 	ttl, err := cache.TTL(key)
+
+	// assert
 	if err != nil {
-		t.Error("err should be nil", err.Error())
+		t.Errorf("expected nil, but got %v", err)
 	}
-	if ttl != 1 {
-		t.Fatalf("ttl should be 1, but %d returned", ttl)
+	if ttl != uint32(expireSeconds) {
+		t.Errorf("expected %d, but got %d ", expireSeconds, ttl)
+	}
+	if timer.NowCallsCount() != 1 {
+		t.Errorf("expected %d, but got %d ", 1, timer.NowCallsCount())
+	}
+}
+
+func testTTLWithNotYetExpiredKey(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	var now uint32 = 1659954368
+	timer := new(mockTimer)
+	timer.SetNowCallback(func() uint32 {
+		return now
+	})
+	cache := NewCacheCustomTimer(512*1024, timer)
+	key := []byte("test-key")
+	value := []byte("this key expires, but is not expired")
+	expireSeconds := 300
+	if err := cache.Set(key, value, expireSeconds); err != nil {
+		t.Fatalf("prerequisite failed: could not set the key to query ttl for: %v", err)
+	}
+
+	// act
+	ttl, err := cache.TTL(key)
+
+	// assert
+	if err != nil {
+		t.Errorf("expected nil, but got %v", err)
+	}
+	if ttl != uint32(expireSeconds) {
+		t.Errorf("expected %d, but got %d ", expireSeconds, ttl)
+	}
+	if timer.NowCallsCount() != 2 { // one call from set, one from ttl
+		t.Errorf("expected %d, but got %d ", 2, timer.NowCallsCount())
+	}
+}
+
+func testTTLWithExpiredKey(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	var now uint32 = 1659954369
+	expireSeconds := 600
+	timer := new(mockTimer)
+	timer.SetNowCallback(func() uint32 {
+		switch timer.NowCallsCount() {
+		case 1:
+			return now
+		case 2:
+			return now + uint32(expireSeconds)
+		}
+
+		return now
+	})
+	cache := NewCacheCustomTimer(512*1024, timer)
+	key := []byte("test-key")
+	value := []byte("this key is expired")
+	if err := cache.Set(key, value, expireSeconds); err != nil {
+		t.Fatalf("prerequisite failed: could not set the key to query ttl for: %v", err)
+	}
+
+	// act
+	ttl, err := cache.TTL(key)
+
+	// assert
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected %v, but got %v", ErrNotFound, err)
+	}
+	if ttl != 0 {
+		t.Errorf("expected %d, but got %d ", 0, ttl)
+	}
+	if timer.NowCallsCount() != 2 { // one call from set, one from ttl
+		t.Errorf("expected %d, but got %d ", 2, timer.NowCallsCount())
+	}
+}
+
+func testTTLWithNotFoundKey(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	timer := new(mockTimer)
+	cache := NewCacheCustomTimer(512*1024, timer)
+	key := []byte("test-not-found-key")
+
+	// act
+	ttl, err := cache.TTL(key)
+
+	// assert
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected %v, but got %v", ErrNotFound, err)
+	}
+	if ttl != 0 {
+		t.Errorf("expected %d, but got %d ", 0, ttl)
+	}
+	if timer.NowCallsCount() != 0 {
+		t.Errorf("expected %d, but got %d ", 0, timer.NowCallsCount())
 	}
 }
 
@@ -802,6 +946,35 @@ func BenchmarkHashFunc(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		hashFunc(key)
 	}
+}
+
+func benchmarkTTL(expireSeconds int) func(b *testing.B) {
+	return func(b *testing.B) {
+		cache := NewCache(512 * 1024)
+		key := []byte("bench-ttl-key")
+		value := []byte("bench-ttl-value")
+		if err := cache.Set(key, value, expireSeconds); err != nil {
+			b.Fatalf("prerequisite failed: could not set the key to query TTL for: %v", err)
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			_, err := cache.TTL(key)
+			if err != nil {
+				b.Error(err)
+			}
+		}
+	}
+}
+
+func BenchmarkTTL_withKeyThatDoesNotExpire(b *testing.B) {
+	benchmarkTTL(0)(b)
+}
+
+func BenchmarkTTL_withKeyThatDoesExpire(b *testing.B) {
+	benchmarkTTL(30)(b)
 }
 
 func TestConcurrentGetTTL(t *testing.T) {
