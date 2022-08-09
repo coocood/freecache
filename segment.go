@@ -170,7 +170,7 @@ func (seg *segment) touch(key []byte, hashVal uint64, expireSeconds int) (err er
 	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
 
 	now := seg.timer.Now()
-	if hdr.expireAt != 0 && hdr.expireAt <= now {
+	if isExpired(hdr.expireAt, now) {
 		seg.delEntryPtr(slotId, slot, idx)
 		atomic.AddInt64(&seg.totalExpired, 1)
 		err = ErrNotFound
@@ -208,7 +208,7 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 			seg.vacuumLen += oldEntryLen
 			continue
 		}
-		expired := oldHdr.expireAt != 0 && oldHdr.expireAt < now
+		expired := isExpired(oldHdr.expireAt, now)
 		leastRecentUsed := int64(oldHdr.accessTime)*atomic.LoadInt64(&seg.totalCount) <= atomic.LoadInt64(&seg.totalTime)
 		if expired || leastRecentUsed || consecutiveEvacuate > 5 {
 			seg.delEntryPtrByOffset(oldHdr.slotId, oldHdr.hash16, oldOff)
@@ -292,7 +292,7 @@ func (seg *segment) locate(key []byte, hashVal uint64, peek bool) (hdr *entryHdr
 	hdr = (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
 	if !peek {
 		now := seg.timer.Now()
-		if hdr.expireAt != 0 && hdr.expireAt <= now {
+		if isExpired(hdr.expireAt, now) {
 			seg.delEntryPtr(slotId, slot, idx)
 			atomic.AddInt64(&seg.totalExpired, 1)
 			err = ErrNotFound
@@ -328,18 +328,19 @@ func (seg *segment) ttl(key []byte, hashVal uint64) (timeLeft uint32, err error)
 		return
 	}
 	ptr := &slot[idx]
-	now := seg.timer.Now()
 
 	var hdrBuf [ENTRY_HDR_SIZE]byte
 	seg.rb.ReadAt(hdrBuf[:], ptr.offset)
 	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
 
 	if hdr.expireAt == 0 {
-		timeLeft = 0
 		return
-	} else if hdr.expireAt != 0 && hdr.expireAt >= now {
-		timeLeft = hdr.expireAt - now
-		return
+	} else {
+		now := seg.timer.Now()
+		if !isExpired(hdr.expireAt, now) {
+			timeLeft = hdr.expireAt - now
+			return
+		}
 	}
 	err = ErrNotFound
 	return
@@ -476,4 +477,9 @@ func (seg *segment) clear() {
 func (seg *segment) getSlot(slotId uint8) []entryPtr {
 	slotOff := int32(slotId) * seg.slotCap
 	return seg.slotsData[slotOff : slotOff+seg.slotLens[slotId] : slotOff+seg.slotCap]
+}
+
+// isExpired checks if a key is expired.
+func isExpired(keyExpireAt, now uint32) bool {
+	return keyExpireAt != 0 && keyExpireAt <= now
 }
