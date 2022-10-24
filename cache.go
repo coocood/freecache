@@ -22,7 +22,7 @@ type Cache struct {
 	segments [segmentCount]segment
 }
 
-type GetAndSetDecider func(value []byte, found bool) (newValue []byte, replace bool, expireSeconds int)
+type Updater func(value []byte, found bool) (newValue []byte, replace bool, expireSeconds int)
 
 func hashFunc(data []byte) uint64 {
 	return xxhash.Sum64(data)
@@ -138,13 +138,13 @@ func (cache *Cache) SetAndGet(key, value []byte, expireSeconds int) (retValue []
 	return
 }
 
-// GetAndSet gets value for a key, passes it do decider function that decides if set should be called as well
+// Update gets value for a key, passes it to updater function that decides if set should be called as well
 // This allows for an atomic Get plus Set call using the existing value to decide on whether to call Set.
 // If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
 // the entry will not be written to the cache. expireSeconds <= 0 means no expire,
 // but it can be evicted when cache is full. Returns bool value to indicate if existing record was found along with bool
 // value indicating the value was replaced and error if any
-func (cache *Cache) GetAndSet(key []byte, decider GetAndSetDecider) (found bool, replaced bool, err error) {
+func (cache *Cache) Update(key []byte, updater Updater) (found bool, replaced bool, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
@@ -156,7 +156,7 @@ func (cache *Cache) GetAndSet(key []byte, decider GetAndSetDecider) (found bool,
 	} else {
 		err = nil // Clear ErrNotFound error since we're returning found flag
 	}
-	value, replaced, expireSeconds := decider(retValue, found)
+	value, replaced, expireSeconds := updater(retValue, found)
 	if !replaced {
 		return
 	}

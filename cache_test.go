@@ -1018,8 +1018,8 @@ func TestSetAndGet(t *testing.T) {
 	}
 }
 
-func TestGetAndSet(t *testing.T) {
-	testName := "GetAndSet"
+func TestUpdate(t *testing.T) {
+	testName := "Update"
 	cache := NewCache(1024)
 	key := []byte("abcd")
 	val1 := []byte("efgh")
@@ -1027,18 +1027,18 @@ func TestGetAndSet(t *testing.T) {
 
 	var found, replaced bool
 	var err error
-	var prevVal, deciderVal []byte
-	deciderReplace := false
+	var prevVal, updaterVal []byte
+	updaterReplace := false
 	expireSeconds := 123
 
-	decider := func(value []byte, found bool) ([]byte, bool, int) {
+	updater := func(value []byte, found bool) ([]byte, bool, int) {
 		prevVal = value
-		return deciderVal, deciderReplace, expireSeconds
+		return updaterVal, updaterReplace, expireSeconds
 	}
 
-	setDeciderResponse := func(value []byte, replace bool) {
-		deciderVal = value
-		deciderReplace = replace
+	setUpdaterResponse := func(value []byte, replace bool) {
+		updaterVal = value
+		updaterReplace = replace
 	}
 
 	assertExpectations := func(testCase int, expectedFound, expectedReplaced bool, expectedPrevVal []byte, expectedVal []byte) {
@@ -1068,21 +1068,21 @@ func TestGetAndSet(t *testing.T) {
 	}
 
 	// Doesn't exist yet, decide not to update, set should not be called
-	found, replaced, err = cache.GetAndSet(key, decider)
+	found, replaced, err = cache.Update(key, updater)
 	assertExpectations(1, false, false, nil, nil)
 
 	// Doesn't exist yet, decide to update, set should be called with new value
-	setDeciderResponse(val1, true)
-	found, replaced, err = cache.GetAndSet(key, decider)
+	setUpdaterResponse(val1, true)
+	found, replaced, err = cache.Update(key, updater)
 	assertExpectations(2, false, true, nil, val1)
 
-	// Key exists, decide to update, decider is given old value and set should be called with new value
-	setDeciderResponse(val2, true)
-	found, replaced, err = cache.GetAndSet(key, decider)
+	// Key exists, decide to update, updater is given old value and set should be called with new value
+	setUpdaterResponse(val2, true)
+	found, replaced, err = cache.Update(key, updater)
 	assertExpectations(3, true, true, val1, val2)
 
-	// Key exists, decide not to update, decider is given old value and set should not be called
-	setDeciderResponse(val1, false)
-	found, replaced, err = cache.GetAndSet(key, decider)
+	// Key exists, decide not to update, updater is given old value and set should not be called
+	setUpdaterResponse(val1, false)
+	found, replaced, err = cache.Update(key, updater)
 	assertExpectations(4, true, false, val2, val2)
 }
