@@ -668,7 +668,7 @@ func TestRace(t *testing.T) {
 	getFunc := func() {
 		var i int64
 		for i = 0; i < iters; i++ {
-			_, _ = cache.GetInt(int64(mrand.Intn(inUse))) //it will likely error w/ delFunc running too
+			_, _ = cache.GetInt(int64(mrand.Intn(inUse))) // it will likely error w/ delFunc running too
 		}
 		wg.Done()
 	}
@@ -1016,4 +1016,73 @@ func TestSetAndGet(t *testing.T) {
 	if string(val1) != string(rval) {
 		t.Fatalf("SetAndGet expected SetAndGet %s: got %s", string(val1), string(rval))
 	}
+}
+
+func TestUpdate(t *testing.T) {
+	testName := "Update"
+	cache := NewCache(1024)
+	key := []byte("abcd")
+	val1 := []byte("efgh")
+	val2 := []byte("ijkl")
+
+	var found, replaced bool
+	var err error
+	var prevVal, updaterVal []byte
+	updaterReplace := false
+	expireSeconds := 123
+
+	updater := func(value []byte, found bool) ([]byte, bool, int) {
+		prevVal = value
+		return updaterVal, updaterReplace, expireSeconds
+	}
+
+	setUpdaterResponse := func(value []byte, replace bool) {
+		updaterVal = value
+		updaterReplace = replace
+	}
+
+	assertExpectations := func(testCase int, expectedFound, expectedReplaced bool, expectedPrevVal []byte, expectedVal []byte) {
+		failPrefix := fmt.Sprintf("%s(%d)", testName, testCase)
+
+		if expectedFound != found {
+			t.Fatalf("%s found should be %v", failPrefix, expectedFound)
+		}
+		if expectedReplaced != replaced {
+			t.Fatalf("%s found should be %v", failPrefix, expectedReplaced)
+		}
+		if err != nil {
+			t.Fatalf("%s unexpected err %v", failPrefix, err)
+		}
+		if string(prevVal) != string(expectedPrevVal) {
+			t.Fatalf("%s previous value expected %s instead of %s", failPrefix, string(expectedPrevVal), string(prevVal))
+		}
+
+		// Check value
+		value, err := cache.Get(key)
+		if err == ErrNotFound && expectedVal != nil {
+			t.Fatalf("%s previous value expected %s instead of nil", failPrefix, string(expectedVal))
+		}
+		if string(value) != string(expectedVal) {
+			t.Fatalf("%s previous value expected %s instead of %s", failPrefix, string(expectedVal), string(value))
+		}
+	}
+
+	// Doesn't exist yet, decide not to update, set should not be called
+	found, replaced, err = cache.Update(key, updater)
+	assertExpectations(1, false, false, nil, nil)
+
+	// Doesn't exist yet, decide to update, set should be called with new value
+	setUpdaterResponse(val1, true)
+	found, replaced, err = cache.Update(key, updater)
+	assertExpectations(2, false, true, nil, val1)
+
+	// Key exists, decide to update, updater is given old value and set should be called with new value
+	setUpdaterResponse(val2, true)
+	found, replaced, err = cache.Update(key, updater)
+	assertExpectations(3, true, true, val1, val2)
+
+	// Key exists, decide not to update, updater is given old value and set should not be called
+	setUpdaterResponse(val1, false)
+	found, replaced, err = cache.Update(key, updater)
+	assertExpectations(4, true, false, val2, val2)
 }
