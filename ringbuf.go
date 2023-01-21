@@ -61,6 +61,9 @@ func (rb *RingBuf) End() int64 {
 
 // read up to len(p), at off of the data stream.
 func (rb *RingBuf) ReadAt(p []byte, off int64) (n int, err error) {
+	if len(p) == 0 {
+		return
+	}
 	if off > rb.end || off < rb.begin {
 		err = ErrOutOfRange
 		return

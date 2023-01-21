@@ -2,12 +2,14 @@ package freecache
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
 	mrand "math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -1085,4 +1087,67 @@ func TestUpdate(t *testing.T) {
 	setUpdaterResponse(val1, false)
 	found, replaced, err = cache.Update(key, updater)
 	assertExpectations(4, true, false, val2, val2)
+}
+
+func TestBackup(t *testing.T) {
+	iters := 100
+
+	cache := NewCache(1024)
+	for i := 0; i < iters; i++ {
+		key := mrand.Int()
+		val := strconv.Itoa(i)
+		err := cache.SetInt(int64(key), []byte(val), 60)
+		if err != nil {
+			t.Errorf("err: %s", err)
+		}
+	}
+
+	f, err := os.Create("/tmp/cache_backup.bin")
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	defer f.Close()
+
+	gz := gzip.NewWriter(f)
+	defer gz.Close()
+
+	err = cache.Backup(gz)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+}
+
+func TestRestore(t *testing.T) {
+	iters := 100
+	cache := NewCache(1024)
+
+	f, err := os.Open("/tmp/cache_backup.bin")
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	defer gz.Close()
+
+	err = cache.Restore(gz)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	for i := 0; i < iters; i++ {
+		key := mrand.Int()
+		val := strconv.Itoa(i)
+		val2, err := cache.GetInt(int64(key))
+		if err != nil {
+			t.Errorf("err: %s", err)
+		}
+
+		if string(val2) != val {
+			t.Errorf("err: %v %q==%q", key, val, val2)
+		}
+	}
 }

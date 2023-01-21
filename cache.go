@@ -1,7 +1,9 @@
 package freecache
 
 import (
+	"bufio"
 	"encoding/binary"
+	"io"
 	"sync"
 	"sync/atomic"
 
@@ -364,5 +366,63 @@ func (cache *Cache) ResetStatistics() {
 		cache.locks[i].Lock()
 		cache.segments[i].resetStatistics()
 		cache.locks[i].Unlock()
+	}
+}
+
+// Backup the cache to writer.
+func (cache *Cache) Backup(w io.Writer) error {
+	it := cache.NewIterator()
+	for {
+		e := it.Next()
+		if e == nil {
+			return nil
+		}
+
+		chunk := encodeEntry(e)
+		_, err := w.Write(chunk)
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// Restore from backup.
+func (cache *Cache) Restore(rd io.Reader) error {
+	timer := cache.segments[0].timer
+	buf := make([]byte, 8*1024) // 8KB
+
+	r := bufio.NewReader(rd)
+	for {
+		bsize, err := r.Peek(8)
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+
+		size := getEntrySize(bsize)
+		if len(buf) < size {
+			buf = make([]byte, size*2)
+		}
+
+		_, err = io.ReadFull(r, buf[:size])
+		if err != nil {
+			return err
+		}
+
+		e := decodeEntry(buf)
+		if int(e.ExpireAt) == 0 {
+			err = cache.Set(e.Key, e.Value, 0)
+		} else {
+			now := timer.Now()
+			if !isExpired(e.ExpireAt, now) {
+				ttl := int(e.ExpireAt - now)
+				err = cache.Set(e.Key, e.Value, ttl)
+			}
+		}
+		if err != nil {
+			return err
+		}
 	}
 }
