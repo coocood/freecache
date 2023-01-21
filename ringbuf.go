@@ -28,7 +28,8 @@ func NewRingBuf(size int, begin int64) (rb RingBuf) {
 // Reset the ring buffer
 //
 // Parameters:
-//     begin: beginning offset of the data stream
+//
+//	begin: beginning offset of the data stream
 func (rb *RingBuf) Reset(begin int64) {
 	rb.begin = begin
 	rb.end = begin
@@ -96,6 +97,9 @@ func (rb *RingBuf) getDataOff(off int64) int {
 // Slice returns a slice of the supplied range of the ring buffer. It will
 // not alloc unless the requested range wraps the ring buffer.
 func (rb *RingBuf) Slice(off, length int64) ([]byte, error) {
+	if length == 0 {
+		return nil, nil
+	}
 	if off > rb.end || off < rb.begin {
 		return nil, ErrOutOfRange
 	}
@@ -136,6 +140,9 @@ func (rb *RingBuf) Write(p []byte) (n int, err error) {
 }
 
 func (rb *RingBuf) WriteAt(p []byte, off int64) (n int, err error) {
+	if len(p) == 0 {
+		return
+	}
 	if off+int64(len(p)) > rb.end || off < rb.begin {
 		err = ErrOutOfRange
 		return

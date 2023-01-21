@@ -9,9 +9,9 @@ import (
 const HASH_ENTRY_SIZE = 16
 const ENTRY_HDR_SIZE = 24
 
-var ErrLargeKey = errors.New("The key is larger than 65535")
-var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
-var ErrNotFound = errors.New("Entry not found")
+var ErrLargeKey = errors.New("the key is larger than 65535")
+var ErrLargeEntry = errors.New("the entry size is larger than 1/1024 of cache size")
+var ErrNotFound = errors.New("entry not found")
 
 // entry pointer struct points to an entry in ring buffer
 type entryPtr struct {
@@ -241,6 +241,13 @@ func (seg *segment) get(key, buf []byte, hashVal uint64, peek bool) (value []byt
 		return
 	}
 	expireAt = hdr.expireAt
+	if !peek {
+		atomic.AddInt64(&seg.hitCount, 1)
+	}
+	if int(hdr.valLen) == 0 {
+		return
+	}
+
 	if cap(buf) >= int(hdr.valLen) {
 		value = buf[:hdr.valLen]
 	} else {
@@ -248,9 +255,6 @@ func (seg *segment) get(key, buf []byte, hashVal uint64, peek bool) (value []byt
 	}
 
 	seg.rb.ReadAt(value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
-	if !peek {
-		atomic.AddInt64(&seg.hitCount, 1)
-	}
 	return
 }
 
