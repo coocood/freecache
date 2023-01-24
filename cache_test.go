@@ -1089,65 +1089,77 @@ func TestUpdate(t *testing.T) {
 	assertExpectations(4, true, false, val2, val2)
 }
 
-func TestBackup(t *testing.T) {
+func TestBackupRestore(t *testing.T) {
 	iters := 100
+	minTimeExpire := 5
+	totalExpire := 10
 
-	cache := NewCache(1024)
-	for i := 0; i < iters; i++ {
-		key := mrand.Int()
-		val := strconv.Itoa(i)
-		err := cache.SetInt(int64(key), []byte(val), 60)
+	// TestBackup
+	func() {
+		cache := NewCache(1024)
+
+		mrand.Seed(7)
+		for i := 0; i < iters; i++ {
+			key := mrand.Int()
+			val := strconv.Itoa(i)
+			err := cache.SetInt(int64(key), []byte(val), minTimeExpire+i)
+			if err != nil {
+				t.Errorf("err: %s", err)
+			}
+		}
+
+		f, err := os.Create("/tmp/cache_backup.bin")
 		if err != nil {
-			t.Errorf("err: %s", err)
+			t.Fatalf("err: %s", err)
 		}
-	}
+		defer f.Close()
 
-	f, err := os.Create("/tmp/cache_backup.bin")
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	defer f.Close()
+		gz := gzip.NewWriter(f)
+		defer gz.Close()
 
-	gz := gzip.NewWriter(f)
-	defer gz.Close()
-
-	err = cache.Backup(gz)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-}
-
-func TestRestore(t *testing.T) {
-	iters := 100
-	cache := NewCache(1024)
-
-	f, err := os.Open("/tmp/cache_backup.bin")
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	defer f.Close()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-	defer gz.Close()
-
-	err = cache.Restore(gz)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	for i := 0; i < iters; i++ {
-		key := mrand.Int()
-		val := strconv.Itoa(i)
-		val2, err := cache.GetInt(int64(key))
+		err = cache.Backup(gz)
 		if err != nil {
-			t.Errorf("err: %s", err)
+			t.Fatalf("err: %s", err)
+		}
+	}()
+
+	// TestRestore
+	func() {
+		cache := NewCache(1024)
+
+		f, err := os.Open("/tmp/cache_backup.bin")
+		if err != nil {
+			t.Fatalf("err: %s", err)
+		}
+		defer f.Close()
+
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			t.Fatalf("err: %s", err)
+		}
+		defer gz.Close()
+		err = cache.Restore(gz)
+		if err != nil {
+			t.Fatalf("err: %s", err)
 		}
 
-		if string(val2) != val {
-			t.Errorf("err: %v %q==%q", key, val, val2)
+		time.Sleep(time.Duration(minTimeExpire+totalExpire) * time.Second)
+
+		mrand.Seed(7)
+		for i := 0; i < iters; i++ {
+			key := mrand.Int()
+			val := strconv.Itoa(i)
+			val2, err := cache.GetInt(int64(key))
+			if err != nil {
+				if i < (totalExpire+1) && err == ErrNotFound {
+					continue
+				}
+				t.Errorf("err: %s", err)
+			}
+
+			if string(val2) != val {
+				t.Errorf("err: %v %q==%q", key, val, val2)
+			}
 		}
-	}
+	}()
 }
