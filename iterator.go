@@ -1,6 +1,7 @@
 package freecache
 
 import (
+	"encoding/binary"
 	"unsafe"
 )
 
@@ -14,8 +15,41 @@ type Iterator struct {
 
 // Entry represents a key/value pair.
 type Entry struct {
-	Key   []byte
-	Value []byte
+	Key      []byte
+	Value    []byte
+	ExpireAt uint32
+}
+
+const headerEntry = 4 + 4 + 4
+
+func getEntrySize(b []byte) int {
+	return headerEntry + int(binary.LittleEndian.Uint32(b[0:4])) + int(binary.LittleEndian.Uint32(b[4:8]))
+}
+
+func encodeEntry(e *Entry) []byte {
+	size := headerEntry + len(e.Key) + len(e.Value)
+	buf := make([]byte, size)
+
+	// header
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(e.Key)))
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(len(e.Value)))
+	binary.LittleEndian.PutUint32(buf[8:12], e.ExpireAt)
+
+	// data
+	copy(buf[12:], e.Key)
+	copy(buf[12+len(e.Key):], e.Value)
+	return buf
+}
+
+func decodeEntry(b []byte) *Entry {
+	ks := binary.LittleEndian.Uint32(b[0:4])
+	vs := binary.LittleEndian.Uint32(b[4:8])
+	expire := binary.LittleEndian.Uint32(b[8:12])
+	return &Entry{
+		Key:      b[12 : 12+ks],
+		Value:    b[12+ks : 12+ks+vs],
+		ExpireAt: expire,
+	}
 }
 
 // Next returns the next entry for the iterator.
@@ -63,6 +97,7 @@ func (it *Iterator) nextForSlot(seg *segment, slotId int) *Entry {
 			entry := new(Entry)
 			entry.Key = make([]byte, hdr.keyLen)
 			entry.Value = make([]byte, hdr.valLen)
+			entry.ExpireAt = hdr.expireAt
 			seg.rb.ReadAt(entry.Key, ptr.offset+ENTRY_HDR_SIZE)
 			seg.rb.ReadAt(entry.Value, ptr.offset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 			return entry
