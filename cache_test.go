@@ -1086,3 +1086,17 @@ func TestUpdate(t *testing.T) {
 	found, replaced, err = cache.Update(key, updater)
 	assertExpectations(4, true, false, val2, val2)
 }
+
+func TestBenchmarkCacheGetWithBuf(t *testing.T) {
+	alloc := testing.Benchmark(BenchmarkCacheGetWithBuf).AllocsPerOp()
+	if alloc > 0 {
+		t.Errorf("current alloc count '%d' is higher than 0", alloc)
+	}
+}
+
+func TestBenchmarkCacheSet(t *testing.T) {
+	alloc := testing.Benchmark(BenchmarkCacheSet).AllocsPerOp()
+	if alloc > 0 {
+		t.Errorf("current alloc count '%d' is higher than 0", alloc)
+	}
+}
