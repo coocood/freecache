@@ -1,0 +1,18 @@
+run:
+  timeout: 3m
+
+linters:
+  disable-all: true
+  enable:
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gofmt
+    - revive
+    - gci
+    - gofumpt
+    - whitespace
+    - gosec

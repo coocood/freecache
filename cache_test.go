@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	mrand "math/rand"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,7 +65,7 @@ func TestFreeCache(t *testing.T) {
 	if !affected {
 		t.Error("del should return affected true")
 	}
-	value, err = cache.Get(key)
+	_, err = cache.Get(key)
 	if err != ErrNotFound {
 		t.Error("error should be ErrNotFound after being deleted")
 	}
@@ -112,7 +112,7 @@ func TestFreeCache(t *testing.T) {
 				t.Errorf("value is %v, expected %v", string(value), expectedValStr)
 			}
 		}
-		err = cache.GetFn([]byte(keyStr), func(val []byte) error {
+		_ = cache.GetFn([]byte(keyStr), func(val []byte) error {
 			if string(val) != expectedValStr {
 				t.Errorf("getfn: value is %v, expected %v", string(val), expectedValStr)
 			}
@@ -213,7 +213,7 @@ func TestGetWithExpiration(t *testing.T) {
 
 	res, expiry, err := cache.GetWithExpiration(key)
 	var expireTime time.Time
-	var startTime = time.Now()
+	startTime := time.Now()
 	for {
 		_, _, err := cache.GetWithExpiration(key)
 		expireTime = time.Now()
@@ -283,7 +283,6 @@ func testTTLWithNoExpireKey(t *testing.T) {
 
 	// act
 	ttl, err := cache.TTL(key)
-
 	// assert
 	if err != nil {
 		t.Errorf("expected nil, but got %v", err)
@@ -315,7 +314,6 @@ func testTTLWithNotYetExpiredKey(t *testing.T) {
 
 	// act
 	ttl, err := cache.TTL(key)
-
 	// assert
 	if err != nil {
 		t.Errorf("expected nil, but got %v", err)
@@ -498,12 +496,12 @@ func TestLargeEntry(t *testing.T) {
 	if err != ErrLargeKey {
 		t.Error("large key should return ErrLargeKey")
 	}
-	val, err = cache.Get(key)
-	if val != nil {
-		t.Error("value should be nil when get a big key")
+	_, err = cache.Get(key)
+	if err != ErrNotFound {
+		t.Error("error should be NotFound")
 	}
 	key = []byte("abcd")
-	maxValLen := cacheSize/1024 - ENTRY_HDR_SIZE - len(key)
+	maxValLen := cacheSize/1024 - entryHdrSize - len(key)
 	val = make([]byte, maxValLen+1)
 	err = cache.Set(key, val, 0)
 	if err != ErrLargeEntry {
@@ -650,7 +648,7 @@ func TestSetLargerEntryDeletesWrongEntry(t *testing.T) {
 
 func TestRace(t *testing.T) {
 	cache := NewCache(minBufSize)
-	inUse := 8
+	var inUse int64 = 8
 	wg := sync.WaitGroup{}
 	var iters int64 = 1000
 
@@ -658,7 +656,7 @@ func TestRace(t *testing.T) {
 	addFunc := func() {
 		var i int64
 		for i = 0; i < iters; i++ {
-			err := cache.SetInt(int64(mrand.Intn(inUse)), []byte("abc"), 1)
+			err := cache.SetInt(randInt64(inUse), []byte("abc"), 1)
 			if err != nil {
 				t.Errorf("err: %s", err)
 			}
@@ -668,14 +666,14 @@ func TestRace(t *testing.T) {
 	getFunc := func() {
 		var i int64
 		for i = 0; i < iters; i++ {
-			_, _ = cache.GetInt(int64(mrand.Intn(inUse))) // it will likely error w/ delFunc running too
+			_, _ = cache.GetInt(randInt64(inUse)) // it will likely error w/ delFunc running too
 		}
 		wg.Done()
 	}
 	delFunc := func() {
 		var i int64
 		for i = 0; i < iters; i++ {
-			cache.DelInt(int64(mrand.Intn(inUse)))
+			cache.DelInt(randInt64(inUse))
 		}
 		wg.Done()
 	}
@@ -780,6 +778,7 @@ func BenchmarkCacheSet(b *testing.B) {
 		cache.Set(key[:], make([]byte, 8), 0)
 	}
 }
+
 func BenchmarkParallelCacheSet(b *testing.B) {
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
@@ -1099,4 +1098,12 @@ func TestBenchmarkCacheSet(t *testing.T) {
 	if alloc > 0 {
 		t.Errorf("current alloc count '%d' is higher than 0", alloc)
 	}
+}
+
+func randInt64(max int64) int64 {
+	nBig, err := rand.Int(rand.Reader, big.NewInt(max))
+	if err != nil {
+		panic(err)
+	}
+	return nBig.Int64()
 }
