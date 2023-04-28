@@ -1,38 +1,40 @@
-//A basic freecache server supports redis protocol
+// A basic freecache server supports redis protocol
 package main
 
 import (
 	"bufio"
 	"bytes"
 	"errors"
-	"github.com/coocood/freecache"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	// #nosec G108
 	_ "net/http/pprof"
 	"runtime"
 	"runtime/debug"
 	"strconv"
 	"time"
+
+	"github.com/coocood/freecache"
 )
 
 var (
-	protocolErr       = errors.New("protocol error")
-	CRLF              = []byte("\r\n")
-	PING              = []byte("ping")
-	DBSIZE            = []byte("dbsize")
-	ERROR_UNSUPPORTED = []byte("-ERR unsupported command\r\n")
-	OK                = []byte("+OK\r\n")
-	PONG              = []byte("+PONG\r\n")
-	GET               = []byte("get")
-	SET               = []byte("set")
-	SETEX             = []byte("setex")
-	DEL               = []byte("del")
-	NIL               = []byte("$-1\r\n")
-	CZERO             = []byte(":0\r\n")
-	CONE              = []byte(":1\r\n")
-	BulkSign          = []byte("$")
+	errProtocol      = errors.New("protocol error")
+	CRLF             = []byte("\r\n")
+	PING             = []byte("ping")
+	DBSIZE           = []byte("dbsize")
+	ERRORUNSUPPORTED = []byte("-ERR unsupported command\r\n")
+	OK               = []byte("+OK\r\n")
+	PONG             = []byte("+PONG\r\n")
+	GET              = []byte("get")
+	SET              = []byte("set")
+	SETEX            = []byte("setex")
+	DEL              = []byte("del")
+	NIL              = []byte("$-1\r\n")
+	CZERO            = []byte(":0\r\n")
+	CONE             = []byte(":1\r\n")
+	BulkSign         = []byte("$")
 )
 
 type Request struct {
@@ -43,11 +45,6 @@ type Request struct {
 func (req *Request) Reset() {
 	req.args = req.args[:0]
 	req.buf.Reset()
-}
-
-type operation struct {
-	req       Request
-	replyChan chan *bytes.Buffer
 }
 
 type Session struct {
@@ -118,7 +115,7 @@ func (server *Server) ReadClient(r *bufio.Reader, req *Request) (err error) {
 		return
 	}
 	if len(line) == 0 || line[0] != '*' {
-		err = protocolErr
+		err = errProtocol
 		return
 	}
 	argc, err := btoi(line[1:])
@@ -126,7 +123,7 @@ func (server *Server) ReadClient(r *bufio.Reader, req *Request) (err error) {
 		return
 	}
 	if argc <= 0 || argc > 4 {
-		err = protocolErr
+		err = errProtocol
 		return
 	}
 	var argStarts [4]int
@@ -140,7 +137,7 @@ func (server *Server) ReadClient(r *bufio.Reader, req *Request) (err error) {
 			return
 		}
 		if len(line) == 0 || line[0] != '$' {
-			err = protocolErr
+			err = errProtocol
 			return
 		}
 		var argLen int
@@ -149,7 +146,7 @@ func (server *Server) ReadClient(r *bufio.Reader, req *Request) (err error) {
 			return
 		}
 		if argLen < 0 || argLen > 512*1024*1024 {
-			err = protocolErr
+			err = errProtocol
 			return
 		}
 		req.buf.Write(line)
@@ -172,7 +169,7 @@ func (server *Server) ReadClient(r *bufio.Reader, req *Request) (err error) {
 }
 
 func (down *Session) readLoop() {
-	var req = new(Request)
+	req := new(Request)
 	req.buf = new(bytes.Buffer)
 	for {
 		req.Reset()
@@ -185,7 +182,7 @@ func (down *Session) readLoop() {
 		if len(req.args) == 4 && bytes.Equal(req.args[0], SETEX) {
 			expire, err := btoi(req.args[2])
 			if err != nil {
-				reply.Write(ERROR_UNSUPPORTED)
+				reply.Write(ERRORUNSUPPORTED)
 			} else {
 				down.server.cache.Set(req.args[1], req.args[3], expire)
 				reply.Write(OK)
@@ -222,7 +219,7 @@ func (down *Session) readLoop() {
 				reply.WriteString(strconv.Itoa(int(entryCount)))
 				reply.Write(CRLF)
 			} else {
-				reply.Write(ERROR_UNSUPPORTED)
+				reply.Write(ERRORUNSUPPORTED)
 			}
 		}
 		down.replyChan <- reply
@@ -230,35 +227,33 @@ func (down *Session) readLoop() {
 }
 
 func (down *Session) writeLoop() {
-	var buffer = bytes.NewBuffer(nil)
-	var replies = make([]*bytes.Buffer, 1)
+	buffer := bytes.NewBuffer(nil)
+	replies := make([]*bytes.Buffer, 1)
 	for {
 		buffer.Reset()
-		select {
-		case reply, ok := <-down.replyChan:
-			if !ok {
-				down.conn.Close()
-				return
+		reply, ok := <-down.replyChan
+		if !ok {
+			down.conn.Close()
+			return
+		}
+		replies = replies[:1]
+		replies[0] = reply
+		queueLen := len(down.replyChan)
+		for i := 0; i < queueLen; i++ {
+			reply = <-down.replyChan
+			replies = append(replies, reply)
+		}
+		for _, reply := range replies {
+			if reply == nil {
+				buffer.Write(NIL)
+				continue
 			}
-			replies = replies[:1]
-			replies[0] = reply
-			queueLen := len(down.replyChan)
-			for i := 0; i < queueLen; i++ {
-				reply = <-down.replyChan
-				replies = append(replies, reply)
-			}
-			for _, reply := range replies {
-				if reply == nil {
-					buffer.Write(NIL)
-					continue
-				}
-				buffer.Write(reply.Bytes())
-			}
-			_, err := down.conn.Write(buffer.Bytes())
-			if err != nil {
-				down.conn.Close()
-				return
-			}
+			buffer.Write(reply.Bytes())
+		}
+		_, err := down.conn.Write(buffer.Bytes())
+		if err != nil {
+			down.conn.Close()
+			return
 		}
 	}
 }
@@ -270,7 +265,7 @@ func readLine(r *bufio.Reader) ([]byte, error) {
 	}
 	i := len(p) - 2
 	if i < 0 || p[i] != '\r' {
-		return nil, protocolErr
+		return nil, errProtocol
 	}
 	return p[:i], nil
 }
@@ -286,13 +281,13 @@ func btoi(data []byte) (int, error) {
 		sign *= -1
 	}
 	if i >= len(data) {
-		return 0, protocolErr
+		return 0, errProtocol
 	}
 	var l int
 	for ; i < len(data); i++ {
 		c := data[i]
 		if c < '0' || c > '9' {
-			return 0, protocolErr
+			return 0, errProtocol
 		}
 		l = l*10 + int(c-'0')
 	}
@@ -312,7 +307,11 @@ func main() {
 	server := NewServer(256 * 1024 * 1024)
 	debug.SetGCPercent(10)
 	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
+		s := &http.Server{
+			Addr:              "localhost:6060",
+			ReadHeaderTimeout: 30 * time.Second,
+		}
+		log.Println(s.ListenAndServe())
 	}()
 	server.Start(":7788")
 }

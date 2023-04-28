@@ -16,7 +16,7 @@ type RingBuf struct {
 	begin int64 // beginning offset of the data stream.
 	end   int64 // ending offset of the data stream.
 	data  []byte
-	index int //range from '0' to 'len(rb.data)-1'
+	index int // range from '0' to 'len(rb.data)-1'
 }
 
 func NewRingBuf(size int, begin int64) (rb RingBuf) {
@@ -28,7 +28,8 @@ func NewRingBuf(size int, begin int64) (rb RingBuf) {
 // Reset the ring buffer
 //
 // Parameters:
-//     begin: beginning offset of the data stream
+//
+//	begin: beginning offset of the data stream
 func (rb *RingBuf) Reset(begin int64) {
 	rb.begin = begin
 	rb.end = begin
@@ -161,15 +162,14 @@ func (rb *RingBuf) EqualAt(p []byte, off int64) bool {
 	readEnd := readOff + len(p)
 	if readEnd <= len(rb.data) {
 		return bytes.Equal(p, rb.data[readOff:readEnd])
-	} else {
-		firstLen := len(rb.data) - readOff
-		equal := bytes.Equal(p[:firstLen], rb.data[readOff:])
-		if equal {
-			secondLen := len(p) - firstLen
-			equal = bytes.Equal(p[firstLen:], rb.data[:secondLen])
-		}
-		return equal
 	}
+	firstLen := len(rb.data) - readOff
+	equal := bytes.Equal(p[:firstLen], rb.data[readOff:])
+	if equal {
+		secondLen := len(p) - firstLen
+		equal = bytes.Equal(p[firstLen:], rb.data[:secondLen])
+	}
+	return equal
 }
 
 // Evacuate read the data at off, then write it to the the data stream,
@@ -186,13 +186,13 @@ func (rb *RingBuf) Evacuate(off int64, length int) (newOff int64) {
 			rb.index -= len(rb.data)
 		}
 	} else if readOff < rb.index {
-		var n = copy(rb.data[rb.index:], rb.data[readOff:readOff+length])
+		n := copy(rb.data[rb.index:], rb.data[readOff:readOff+length])
 		rb.index += n
 		if rb.index == len(rb.data) {
 			rb.index = copy(rb.data, rb.data[readOff+n:readOff+length])
 		}
 	} else {
-		var readEnd = readOff + length
+		readEnd := readOff + length
 		var n int
 		if readEnd <= len(rb.data) {
 			n = copy(rb.data[rb.index:], rb.data[readOff:readEnd])
@@ -200,7 +200,7 @@ func (rb *RingBuf) Evacuate(off int64, length int) (newOff int64) {
 		} else {
 			n = copy(rb.data[rb.index:], rb.data[readOff:])
 			rb.index += n
-			var tail = length - n
+			tail := length - n
 			n = copy(rb.data[rb.index:], rb.data[:tail])
 			rb.index += n
 			if rb.index == len(rb.data) {

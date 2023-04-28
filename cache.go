@@ -296,9 +296,8 @@ func (cache *Cache) AverageAccessTime() int64 {
 	}
 	if entryCount == 0 {
 		return 0
-	} else {
-		return totalTime / entryCount
 	}
+	return totalTime / entryCount
 }
 
 // HitCount is a metric that returns number of times a key was found in the cache.
@@ -328,9 +327,8 @@ func (cache *Cache) HitRate() float64 {
 	lookupCount := hitCount + missCount
 	if lookupCount == 0 {
 		return 0
-	} else {
-		return float64(hitCount) / float64(lookupCount)
 	}
+	return float64(hitCount) / float64(lookupCount)
 }
 
 // OverwriteCount indicates the number of times entries have been overriden.
