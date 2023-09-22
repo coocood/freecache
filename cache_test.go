@@ -607,6 +607,43 @@ func TestIterator(t *testing.T) {
 	}
 }
 
+func TestIteratorExpireAt(t *testing.T) {
+	cache := NewCache(1024)
+	expireSecond := uint32(5)
+	// Set some value that expires to make sure expired entry is not returned.
+	cache.Set([]byte("no_expire"), []byte("def"), 0)
+	cache.Set([]byte("has_expire"), []byte("exp"), int(expireSecond))
+
+	it := cache.NewIterator()
+	for {
+		next := it.Next()
+		if next == nil {
+			break
+		}
+		if string(next.Key) == "no_expire" && next.ExpireAt != 0 {
+			t.Fatalf("no_expire's ExpireAt should be 0")
+		}
+		expectExpireAt := uint32(time.Now().Unix()) + expireSecond
+		if string(next.Key) == "has_expire" && next.ExpireAt != expectExpireAt {
+			t.Fatalf("has_expire's ExpireAt should be 10,actually is %d", next.ExpireAt)
+		}
+	}
+	time.Sleep(time.Duration(expireSecond) * time.Second)
+	it2 := cache.NewIterator()
+	for {
+		next := it2.Next()
+		if next == nil {
+			return
+		}
+		if string(next.Key) == "no_expire" && next.ExpireAt != 0 {
+			t.Fatalf("no_expire's ExpireAt should be 0")
+		}
+		if string(next.Key) == "has_expire" {
+			t.Fatalf("has_expire should expired")
+		}
+	}
+}
+
 func TestSetLargerEntryDeletesWrongEntry(t *testing.T) {
 	cachesize := 512 * 1024
 	cache := NewCache(cachesize)
@@ -1041,7 +1078,8 @@ func TestUpdate(t *testing.T) {
 		updaterReplace = replace
 	}
 
-	assertExpectations := func(testCase int, expectedFound, expectedReplaced bool, expectedPrevVal []byte, expectedVal []byte) {
+	assertExpectations := func(testCase int, expectedFound, expectedReplaced bool, expectedPrevVal []byte,
+		expectedVal []byte) {
 		failPrefix := fmt.Sprintf("%s(%d)", testName, testCase)
 
 		if expectedFound != found {
@@ -1054,7 +1092,8 @@ func TestUpdate(t *testing.T) {
 			t.Fatalf("%s unexpected err %v", failPrefix, err)
 		}
 		if string(prevVal) != string(expectedPrevVal) {
-			t.Fatalf("%s previous value expected %s instead of %s", failPrefix, string(expectedPrevVal), string(prevVal))
+			t.Fatalf("%s previous value expected %s instead of %s", failPrefix, string(expectedPrevVal),
+				string(prevVal))
 		}
 
 		// Check value
