@@ -333,7 +333,7 @@ func (cache *Cache) HitRate() float64 {
 	}
 }
 
-// OverwriteCount indicates the number of times entries have been overriden.
+// OverwriteCount indicates the number of times entries have been overridden.
 func (cache *Cache) OverwriteCount() (overwriteCount int64) {
 	for i := range cache.segments {
 		overwriteCount += atomic.LoadInt64(&cache.segments[i].overwrites)
