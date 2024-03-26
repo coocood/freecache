@@ -165,6 +165,8 @@ func (cache *Cache) Update(key []byte, updater Updater) (found bool, replaced bo
 }
 
 // Peek returns the value or not found error, without updating access time or counters.
+// Warning: No expiry check is performed so if an expired value is found, it will be
+// returned without error
 func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
@@ -178,11 +180,13 @@ func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 // provided function with slice view over the current underlying value of the
 // key in memory. The slice is constrained in length and capacity.
 //
-// In moth cases, this method will not alloc a byte buffer. The only exception
+// In most cases, this method will not alloc a byte buffer. The only exception
 // is when the value wraps around the underlying segment ring buffer.
 //
 // The method will return ErrNotFound is there's a miss, and the function will
 // not be called. Errors returned by the function will be propagated.
+// Warning: No expiry check is performed so if an expired value is found, it will be
+// returned without error
 func (cache *Cache) PeekFn(key []byte, fn func([]byte) error) (err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
