@@ -1,0 +1,46 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        go-version:
+          - "1.13"
+          - oldstable
+          - stable
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Test
+        run: go test -race -v
+
+      - name: Coverage report
+        if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.go-version == 'stable'
+        continue-on-error: true
+        uses: ncruces/go-coverage-report@v0
+        with:
+          report: true
+          chart: true
+          amend: true

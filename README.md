@@ -3,8 +3,8 @@
 Long lived objects in memory introduce expensive GC overhead, With FreeCache, you can cache unlimited number of objects in memory 
 without increased latency and degraded throughput. 
 
-[![Build Status](https://travis-ci.org/coocood/freecache.png?branch=master)](https://travis-ci.org/coocood/freecache)
-[![GoCover](http://gocover.io/_badge/github.com/coocood/freecache)](http://gocover.io/github.com/coocood/freecache)
+[![Build Status](https://github.com/coocood/freecache/workflows/Test/badge.svg)](https://github.com/coocood/freecache/actions/workflows/test.yml)
+[![GoCover](http://github.com/coocood/freecache/wiki/coverage.svg)](https://raw.githack.com/wiki/coocood/freecache/coverage.html)
 [![GoDoc](https://godoc.org/github.com/coocood/freecache?status.svg)](https://godoc.org/github.com/coocood/freecache)
 
 ## Features
