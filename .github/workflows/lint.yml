@@ -1,0 +1,29 @@
+name: Lint
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          only-new-issues: true
