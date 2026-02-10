@@ -217,6 +217,17 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 	return
 }
 
+// GetWithExpirationAndBuf copies the value to the buf and gets with expiration or returns a not found error.
+// This method doesn't allocate memory when the capacity of buf is greater or equal to value.
+func (cache *Cache) GetWithExpirationAndBuf(key []byte, buf []byte) (value []byte, expireAt uint32, err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	value, expireAt, err = cache.segments[segID].get(key, buf, hashVal, false)
+	cache.locks[segID].Unlock()
+	return
+}
+
 // TTL returns the TTL time left for a given key or a not found error.
 func (cache *Cache) TTL(key []byte) (timeLeft uint32, err error) {
 	hashVal := hashFunc(key)
