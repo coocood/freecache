@@ -213,9 +213,45 @@ func TestGetWithExpiration(t *testing.T) {
 
 	res, expiry, err := cache.GetWithExpiration(key)
 	var expireTime time.Time
-	var startTime = time.Now()
+	startTime := time.Now()
 	for {
 		_, _, err := cache.GetWithExpiration(key)
+		expireTime = time.Now()
+		if err != nil {
+			break
+		}
+		if time.Now().Unix() > int64(expiry+1) {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	if time.Second > expireTime.Sub(startTime) || 3*time.Second < expireTime.Sub(startTime) {
+		t.Error("Cache should expire within a second of the expire time")
+	}
+
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+	if !bytes.Equal(val, res) {
+		t.Fatalf("%s should be the same as %s but isn't", res, val)
+	}
+}
+
+func TestGetWithExpirationAndBuf(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("abcd")
+	val := []byte("efgh")
+	err := cache.Set(key, val, 2)
+	if err != nil {
+		t.Error("err should be nil", err.Error())
+	}
+
+	buf := make([]byte, 0, len(val))
+	res, expiry, err := cache.GetWithExpirationAndBuf(key, buf)
+	var expireTime time.Time
+	startTime := time.Now()
+	for {
+		_, _, err := cache.GetWithExpirationAndBuf(key, buf)
 		expireTime = time.Now()
 		if err != nil {
 			break
@@ -283,7 +319,6 @@ func testTTLWithNoExpireKey(t *testing.T) {
 
 	// act
 	ttl, err := cache.TTL(key)
-
 	// assert
 	if err != nil {
 		t.Errorf("expected nil, but got %v", err)
@@ -315,7 +350,6 @@ func testTTLWithNotYetExpiredKey(t *testing.T) {
 
 	// act
 	ttl, err := cache.TTL(key)
-
 	// assert
 	if err != nil {
 		t.Errorf("expected nil, but got %v", err)
@@ -817,6 +851,7 @@ func BenchmarkCacheSet(b *testing.B) {
 		cache.Set(key[:], make([]byte, 8), 0)
 	}
 }
+
 func BenchmarkParallelCacheSet(b *testing.B) {
 	cache := NewCache(256 * 1024 * 1024)
 	var key [8]byte
@@ -1079,7 +1114,8 @@ func TestUpdate(t *testing.T) {
 	}
 
 	assertExpectations := func(testCase int, expectedFound, expectedReplaced bool, expectedPrevVal []byte,
-		expectedVal []byte) {
+		expectedVal []byte,
+	) {
 		failPrefix := fmt.Sprintf("%s(%d)", testName, testCase)
 
 		if expectedFound != found {
