@@ -315,6 +315,41 @@ func TestPeekWithExpiration(t *testing.T) {
 	})
 }
 
+func TestMultiGet(t *testing.T) {
+	cache := NewCache(1024)
+	cache.Set([]byte("k1"), []byte("v1"), 0)
+	cache.Set([]byte("k2"), []byte("v2"), 0)
+	cache.Set([]byte("k3"), []byte("v3"), 0)
+
+	keys := [][]byte{[]byte("k1"), []byte("k2"), []byte("missing"), []byte("k3")}
+	values, errs := cache.MultiGet(keys)
+	if len(values) != len(keys) || len(errs) != len(keys) {
+		t.Fatalf("len(values)=%d, len(errs)=%d, want %d", len(values), len(errs), len(keys))
+	}
+	if errs[0] != nil || !bytes.Equal(values[0], []byte("v1")) {
+		t.Errorf("keys[0]: value=%q, err=%v", values[0], errs[0])
+	}
+	if errs[1] != nil || !bytes.Equal(values[1], []byte("v2")) {
+		t.Errorf("keys[1]: value=%q, err=%v", values[1], errs[1])
+	}
+	if errs[2] != ErrNotFound || values[2] != nil {
+		t.Errorf("keys[2] (missing): value=%v, err=%v", values[2], errs[2])
+	}
+	if errs[3] != nil || !bytes.Equal(values[3], []byte("v3")) {
+		t.Errorf("keys[3]: value=%q, err=%v", values[3], errs[3])
+	}
+
+	// Empty keys
+	values, errs = cache.MultiGet(nil)
+	if values != nil || errs != nil {
+		t.Errorf("MultiGet(nil): got values=%v, errs=%v", values, errs)
+	}
+	values, errs = cache.MultiGet([][]byte{})
+	if values != nil || errs != nil {
+		t.Errorf("MultiGet(empty): got values=%v, errs=%v", values, errs)
+	}
+}
+
 func TestGetWithExpirationAndBuf(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
@@ -1068,6 +1103,65 @@ func BenchmarkCacheGetWithExpiration(b *testing.B) {
 		binary.LittleEndian.PutUint64(key[:], uint64(i))
 		cache.GetWithExpiration(key[:])
 	}
+}
+
+const (
+	benchDataSize  = 100_00
+	benchBatchSize = 100
+)
+
+func BenchmarkParallelCacheGetBatched(b *testing.B) {
+	b.ReportAllocs()
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	buf := make([]byte, 64)
+	var key [8]byte
+	for i := 0; i < benchDataSize; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], buf, 0)
+	}
+	b.StartTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		keys := make([][]byte, benchBatchSize)
+		for i := range keys {
+			keys[i] = make([]byte, 8)
+		}
+		i := 0
+		for pb.Next() {
+			for j := 0; j < benchBatchSize; j++ {
+				binary.LittleEndian.PutUint64(key[:], uint64((i+j)%benchDataSize))
+				cache.Get(key[:])
+			}
+			i++
+		}
+	})
+}
+
+func BenchmarkParallelCacheMultiGetBatched(b *testing.B) {
+	b.ReportAllocs()
+	b.StopTimer()
+	cache := NewCache(256 * 1024 * 1024)
+	buf := make([]byte, 64)
+	var key [8]byte
+	for i := 0; i < benchDataSize; i++ {
+		binary.LittleEndian.PutUint64(key[:], uint64(i))
+		cache.Set(key[:], buf, 0)
+	}
+	b.StartTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		keys := make([][]byte, benchBatchSize)
+		for i := range keys {
+			keys[i] = make([]byte, 8)
+		}
+		i := 0
+		for pb.Next() {
+			for j := 0; j < benchBatchSize; j++ {
+				binary.LittleEndian.PutUint64(keys[j], uint64((i+j)%benchDataSize))
+			}
+			cache.MultiGet(keys)
+			i++
+		}
+	})
 }
 
 func BenchmarkMapGet(b *testing.B) {
