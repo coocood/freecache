@@ -91,6 +91,9 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 // A miss is represented by values[i] == nil and errs[i] == ErrNotFound.
 // MultiGet reduces lock contention by grouping keys by segment and acquiring
 // each segment lock at most once.
+// Note that MultiGet holds each segment lock longer than a single Get (for
+// the duration of all keys in that segment), which can increase Get tail
+// latency when MultiGet and Get run concurrently.
 func (cache *Cache) MultiGet(keys [][]byte) (values [][]byte, errs []error) {
 	n := len(keys)
 	if n == 0 {
