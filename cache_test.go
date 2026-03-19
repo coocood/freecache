@@ -237,6 +237,84 @@ func TestGetWithExpiration(t *testing.T) {
 	}
 }
 
+func TestPeekWithExpiration(t *testing.T) {
+	now := uint32(1000)
+	key := []byte("abcd")
+	val := []byte("efgh")
+
+	t.Run("existing_key", func(t *testing.T) {
+		expireSeconds := 60
+		timer := new(mockTimer)
+		timer.SetNowCallback(func() uint32 { return now })
+		cache := NewCacheCustomTimer(1024, timer)
+		if err := cache.Set(key, val, expireSeconds); err != nil {
+			t.Fatalf("Set: err should be nil, got %v", err)
+		}
+		res, expiry, err := cache.PeekWithExpiration(key)
+		if err != nil {
+			t.Fatalf("err should be nil, got %v", err)
+		}
+		if res == nil {
+			t.Fatal("value should not be nil")
+		}
+		if !bytes.Equal(val, res) {
+			t.Fatalf("value got %q, want %q", res, val)
+		}
+		if want := now + uint32(expireSeconds); expiry != want {
+			t.Errorf("expiry got %d, want %d", expiry, want)
+		}
+	})
+
+	t.Run("expired_key", func(t *testing.T) {
+		timer := new(mockTimer)
+		timer.SetNowCallback(func() uint32 {
+			switch timer.NowCallsCount() {
+			case 1:
+				return now // Set(expiredKey)
+			case 2:
+				return now + 100 // Get(expiredKey) sees expired
+			default:
+				return now
+			}
+		})
+		cache := NewCacheCustomTimer(1024, timer)
+		if err := cache.Set(key, val, 1); err != nil {
+			t.Fatalf("Set expired key: err should be nil, got %v", err)
+		}
+		res, expiry, err := cache.PeekWithExpiration(key)
+		if err != nil {
+			t.Fatalf("PeekWithExpiration(expired): err should be nil (no expiry check), got %v", err)
+		}
+		if !bytes.Equal(res, val) {
+			t.Fatalf("value got %q, want \"x\"", res)
+		}
+		if want := now + 1; expiry != want {
+			t.Errorf("expiry got %d, want %d", expiry, want)
+		}
+		if _, err := cache.Get(key); err != ErrNotFound {
+			t.Errorf("Get(expired): got %v, want ErrNotFound", err)
+		}
+		res, expiry, err = cache.PeekWithExpiration(key)
+		if err != ErrNotFound || res != nil || expiry != 0 {
+			t.Errorf("after eviction: got res=%v, expiry=%d, err=%v; want nil, 0, ErrNotFound", res, expiry, err)
+		}
+	})
+
+	t.Run("missing_key", func(t *testing.T) {
+		cache := NewCache(1024)
+		res, expiry, err := cache.PeekWithExpiration([]byte("missing"))
+		if err != ErrNotFound {
+			t.Errorf("err got %v, want ErrNotFound", err)
+		}
+		if res != nil {
+			t.Errorf("value got %v, want nil", res)
+		}
+		if expiry != 0 {
+			t.Errorf("expiry got %d, want 0", expiry)
+		}
+	})
+}
+
 func TestGetWithExpirationAndBuf(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
