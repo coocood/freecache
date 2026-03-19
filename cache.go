@@ -86,6 +86,47 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	return
 }
 
+// MultiGet returns values and errors for the given keys. The returned slices
+// have the same length as keys; values[i] and errs[i] correspond to keys[i].
+// A miss is represented by values[i] == nil and errs[i] == ErrNotFound.
+// MultiGet reduces lock contention by grouping keys by segment and acquiring
+// each segment lock at most once.
+// Note that MultiGet holds each segment lock longer than a single Get (for
+// the duration of all keys in that segment), which can increase Get tail
+// latency when MultiGet and Get run concurrently.
+func (cache *Cache) MultiGet(keys [][]byte) (values [][]byte, errs []error) {
+	n := len(keys)
+	if n == 0 {
+		return nil, nil
+	}
+	values = make([][]byte, n)
+	errs = make([]error, n)
+	type keyLoc struct {
+		idx     int
+		hashVal uint64
+	}
+	var groups [segmentCount][]keyLoc
+	for i, key := range keys {
+		hashVal := hashFunc(key)
+		segID := hashVal & segmentAndOpVal
+		groups[segID] = append(groups[segID], keyLoc{idx: i, hashVal: hashVal})
+	}
+	for segID := 0; segID < segmentCount; segID++ {
+		batch := groups[segID]
+		if len(batch) == 0 {
+			continue
+		}
+		cache.locks[segID].Lock()
+		for _, loc := range batch {
+			value, _, err := cache.segments[segID].get(keys[loc.idx], nil, loc.hashVal, false)
+			values[loc.idx] = value
+			errs[loc.idx] = err
+		}
+		cache.locks[segID].Unlock()
+	}
+	return values, errs
+}
+
 // GetFn is equivalent to Get or GetWithBuf, but it attempts to be zero-copy,
 // calling the provided function with slice view over the current underlying
 // value of the key in memory. The slice is constrained in length and capacity.
