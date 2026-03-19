@@ -176,6 +176,18 @@ func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 	return
 }
 
+// PeekWithExpiration returns the value and expiration time, without updating access time or counters.
+// Warning: No expiry check is performed so if an expired value is found, it will be
+// returned without error
+func (cache *Cache) PeekWithExpiration(key []byte) (value []byte, expireAt uint32, err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	value, expireAt, err = cache.segments[segID].get(key, nil, hashVal, true)
+	cache.locks[segID].Unlock()
+	return
+}
+
 // PeekFn is equivalent to Peek, but it attempts to be zero-copy, calling the
 // provided function with slice view over the current underlying value of the
 // key in memory. The slice is constrained in length and capacity.
