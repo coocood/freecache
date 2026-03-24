@@ -656,7 +656,7 @@ func TestLargeEntry(t *testing.T) {
 	if err != ErrLargeEntry {
 		t.Error("err should be ErrLargeEntry", err)
 	}
-	val = make([]byte, maxValLen-2)
+	val = make([]byte, 0, maxValLen-2)
 	err = cache.Set(key, val, 0)
 	if err != nil {
 		t.Error(err)
