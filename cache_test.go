@@ -1347,3 +1347,166 @@ func TestBenchmarkCacheSet(t *testing.T) {
 		t.Errorf("current alloc count '%d' is higher than 0", alloc)
 	}
 }
+
+// Tests for time.Duration support
+func TestSetDuration(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	// Set with duration
+	err := cache.SetDuration(key, value, time.Second)
+	if err != nil {
+		t.Errorf("SetDuration should not error, got %v", err)
+	}
+
+	// Verify value was set
+	retrieved, err := cache.Get(key)
+	if err != nil {
+		t.Errorf("Get should not error, got %v", err)
+	}
+	if !bytes.Equal(retrieved, value) {
+		t.Errorf("Retrieved value should match, got %v, expected %v", retrieved, value)
+	}
+}
+
+func TestTouchDuration(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	// Set initial entry
+	err := cache.Set(key, value, 1)
+	if err != nil {
+		t.Errorf("Set should not error, got %v", err)
+	}
+
+	// Touch with duration
+	err = cache.TouchDuration(key, 5*time.Second)
+	if err != nil {
+		t.Errorf("TouchDuration should not error, got %v", err)
+	}
+
+	// Verify value still exists
+	retrieved, err := cache.Get(key)
+	if err != nil {
+		t.Errorf("Get should not error, got %v", err)
+	}
+	if !bytes.Equal(retrieved, value) {
+		t.Errorf("Retrieved value should match, got %v, expected %v", retrieved, value)
+	}
+}
+
+func TestGetOrSetDuration(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("test-key")
+	value := []byte("test-value")
+
+	// GetOrSet on non-existent key
+	retrieved, err := cache.GetOrSetDuration(key, value, time.Second)
+	if err != nil {
+		t.Errorf("GetOrSetDuration should not error, got %v", err)
+	}
+	if retrieved != nil {
+		t.Errorf("GetOrSetDuration should return nil for non-existent key, got %v", retrieved)
+	}
+
+	// GetOrSet on existing key
+	retrieved2, err := cache.GetOrSetDuration(key, []byte("another-value"), 2*time.Second)
+	if err != nil {
+		t.Errorf("GetOrSetDuration should not error, got %v", err)
+	}
+	if !bytes.Equal(retrieved2, value) {
+		t.Errorf("GetOrSetDuration should return existing value, got %v, expected %v", retrieved2, value)
+	}
+}
+
+func TestSetAndGetDuration(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("test-key")
+	value1 := []byte("test-value-1")
+	value2 := []byte("test-value-2")
+
+	// SetAndGet on non-existent key
+	retrieved, found, err := cache.SetAndGetDuration(key, value1, time.Second)
+	if err != nil {
+		t.Errorf("SetAndGetDuration should not error, got %v", err)
+	}
+	if found {
+		t.Errorf("SetAndGetDuration should return found=false for non-existent key")
+	}
+	if retrieved != nil {
+		t.Errorf("SetAndGetDuration should return nil for non-existent key, got %v", retrieved)
+	}
+
+	// SetAndGet on existing key
+	retrieved2, found2, err := cache.SetAndGetDuration(key, value2, 2*time.Second)
+	if err != nil {
+		t.Errorf("SetAndGetDuration should not error, got %v", err)
+	}
+	if !found2 {
+		t.Errorf("SetAndGetDuration should return found=true for existing key")
+	}
+	if !bytes.Equal(retrieved2, value1) {
+		t.Errorf("SetAndGetDuration should return old value, got %v, expected %v", retrieved2, value1)
+	}
+}
+
+func TestUpdateDuration(t *testing.T) {
+	cache := NewCache(1024)
+	key := []byte("test-key")
+	value1 := []byte("test-value-1")
+	value2 := []byte("test-value-2")
+
+	// UpdateDuration on non-existent key
+	found, replaced, err := cache.UpdateDuration(key, func(value []byte, found bool) ([]byte, bool, time.Duration) {
+		if !found {
+			return value1, true, time.Second
+		}
+		return nil, false, 0
+	})
+	if err != nil {
+		t.Errorf("UpdateDuration should not error, got %v", err)
+	}
+	if found {
+		t.Errorf("UpdateDuration should return found=false for non-existent key")
+	}
+	if !replaced {
+		t.Errorf("UpdateDuration should return replaced=true when updater returns true")
+	}
+
+	// Verify value was set
+	retrieved, err := cache.Get(key)
+	if err != nil {
+		t.Errorf("Get should not error, got %v", err)
+	}
+	if !bytes.Equal(retrieved, value1) {
+		t.Errorf("Retrieved value should match, got %v, expected %v", retrieved, value1)
+	}
+
+	// UpdateDuration on existing key
+	found, replaced, err = cache.UpdateDuration(key, func(value []byte, found bool) ([]byte, bool, time.Duration) {
+		if found {
+			return value2, true, 2 * time.Second
+		}
+		return nil, false, 0
+	})
+	if err != nil {
+		t.Errorf("UpdateDuration should not error, got %v", err)
+	}
+	if !found {
+		t.Errorf("UpdateDuration should return found=true for existing key")
+	}
+	if !replaced {
+		t.Errorf("UpdateDuration should return replaced=true when updater returns true")
+	}
+
+	// Verify value was updated
+	retrieved2, err := cache.Get(key)
+	if err != nil {
+		t.Errorf("Get should not error, got %v", err)
+	}
+	if !bytes.Equal(retrieved2, value2) {
+		t.Errorf("Retrieved value should match, got %v, expected %v", retrieved2, value2)
+	}
+}
