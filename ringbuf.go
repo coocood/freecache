@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 )
 
 var ErrOutOfRange = errors.New("out of range")
@@ -82,13 +83,16 @@ func (rb *RingBuf) ReadAt(p []byte, off int64) (n int, err error) {
 
 func (rb *RingBuf) getDataOff(off int64) int {
 	var dataOff int
-	if rb.end-rb.begin < int64(len(rb.data)) {
-		dataOff = int(off - rb.begin)
+	if uint64(rb.end)-uint64(rb.begin) < uint64(len(rb.data)) {
+		dataOff = int(uint64(off) - uint64(rb.begin))
 	} else {
-		dataOff = rb.index + int(off-rb.begin)
+		dataOff = rb.index + int(uint64(off)-uint64(rb.begin))
 	}
-	if dataOff >= len(rb.data) {
+	for dataOff >= len(rb.data) {
 		dataOff -= len(rb.data)
+	}
+	for dataOff < 0 {
+		dataOff += len(rb.data)
 	}
 	return dataOff
 }
@@ -129,9 +133,10 @@ func (rb *RingBuf) Write(p []byte) (n int, err error) {
 			rb.index -= len(rb.data)
 		}
 	}
-	if int(rb.end-rb.begin) > len(rb.data) {
+	if uint64(rb.end-rb.begin) > uint64(len(rb.data)) {
 		rb.begin = rb.end - int64(len(rb.data))
 	}
+	rb.checkWrap()
 	return
 }
 
@@ -210,8 +215,11 @@ func (rb *RingBuf) Evacuate(off int64, length int) (newOff int64) {
 	}
 	newOff = rb.end
 	rb.end += int64(length)
-	if rb.begin < rb.end-int64(len(rb.data)) {
+	if uint64(rb.end-rb.begin) > uint64(len(rb.data)) {
 		rb.begin = rb.end - int64(len(rb.data))
+	}
+	if rb.checkWrap() {
+		newOff = rb.end - int64(length)
 	}
 	return
 }
@@ -222,11 +230,12 @@ func (rb *RingBuf) Resize(newSize int) {
 	}
 	newData := make([]byte, newSize)
 	var offset int
-	if rb.end-rb.begin == int64(len(rb.data)) {
+	used := int64(uint64(rb.end) - uint64(rb.begin))
+	if used == int64(len(rb.data)) {
 		offset = rb.index
 	}
-	if int(rb.end-rb.begin) > newSize {
-		discard := int(rb.end-rb.begin) - newSize
+	if used > int64(newSize) {
+		discard := int(used - int64(newSize))
 		offset = (offset + discard) % len(rb.data)
 		rb.begin = rb.end - int64(newSize)
 	}
@@ -236,6 +245,7 @@ func (rb *RingBuf) Resize(newSize int) {
 	}
 	rb.data = newData
 	rb.index = 0
+	rb.checkWrap()
 }
 
 func (rb *RingBuf) Skip(length int64) {
@@ -244,7 +254,30 @@ func (rb *RingBuf) Skip(length int64) {
 	for rb.index >= len(rb.data) {
 		rb.index -= len(rb.data)
 	}
-	if int(rb.end-rb.begin) > len(rb.data) {
+	if uint64(rb.end-rb.begin) > uint64(len(rb.data)) {
 		rb.begin = rb.end - int64(len(rb.data))
 	}
+	rb.checkWrap()
+}
+
+// checkWrap normalizes begin and end offsets relative to the ring buffer size
+// when offsets approach math.MaxInt64 or wrap around to prevent integer overflow.
+func (rb *RingBuf) checkWrap() bool {
+	size := int64(len(rb.data))
+	if size == 0 {
+		return false
+	}
+	if rb.end > math.MaxInt64-size*2 || rb.end < rb.begin || rb.end < 0 || rb.begin < 0 {
+		used := int64(uint64(rb.end) - uint64(rb.begin))
+		if used > size {
+			used = size
+		} else if used < 0 {
+			used = 0
+		}
+		normBegin := int64(uint64(rb.begin) % uint64(size))
+		rb.begin = normBegin
+		rb.end = normBegin + used
+		return true
+	}
+	return false
 }
