@@ -225,12 +225,14 @@ func TestViewCallbackPanicReleasesLock(t *testing.T) {
 						t.Errorf("expected callback panic %q, got %v", panicValue, got)
 					}
 				}()
-				tc.view(cache, key, func(got []byte) error {
+				if err := tc.view(cache, key, func(got []byte) error {
 					if !bytes.Equal(got, value) {
 						t.Errorf("callback value = %q, want %q", got, value)
 					}
 					panic(panicValue)
-				})
+				}); err != nil {
+					t.Errorf("view: %v", err)
+				}
 			}()
 
 			// Check the lock before exercising the API so a regression fails
