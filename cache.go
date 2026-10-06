@@ -140,8 +140,8 @@ func (cache *Cache) GetFn(key []byte, fn func([]byte) error) (err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	err = cache.segments[segID].view(key, fn, hashVal, false)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -244,8 +244,8 @@ func (cache *Cache) PeekFn(key []byte, fn func([]byte) error) (err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	err = cache.segments[segID].view(key, fn, hashVal, true)
-	cache.locks[segID].Unlock()
 	return
 }
 

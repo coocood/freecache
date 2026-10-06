@@ -202,6 +202,58 @@ func TestGetOrSet(t *testing.T) {
 	}
 }
 
+func TestViewCallbackPanicReleasesLock(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		view func(*Cache, []byte, func([]byte) error) error
+	}{
+		{"GetFn", (*Cache).GetFn},
+		{"PeekFn", (*Cache).PeekFn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := NewCache(minBufSize)
+			key := []byte("key")
+			value := []byte("value")
+			if err := cache.Set(key, value, 0); err != nil {
+				t.Fatal(err)
+			}
+
+			const panicValue = "callback panic"
+			func() {
+				defer func() {
+					if got := recover(); got != panicValue {
+						t.Errorf("expected callback panic %q, got %v", panicValue, got)
+					}
+				}()
+				if err := tc.view(cache, key, func(got []byte) error {
+					if !bytes.Equal(got, value) {
+						t.Errorf("callback value = %q, want %q", got, value)
+					}
+					panic(panicValue)
+				}); err != nil {
+					t.Errorf("view: %v", err)
+				}
+			}()
+
+			// Check the lock before exercising the API so a regression fails
+			// immediately instead of hanging the test suite.
+			lock := &cache.locks[hashFunc(key)&segmentAndOpVal]
+			if !lock.TryLock() {
+				t.Fatal("segment lock was not released after callback panic")
+			}
+			lock.Unlock()
+			got, err := cache.Get(key)
+			if err != nil || !bytes.Equal(got, value) {
+				t.Fatalf("Get after callback panic: value = %q, err = %v", got, err)
+			}
+			cache.Clear()
+			if _, err := cache.Get(key); err != ErrNotFound {
+				t.Fatalf("Get after Clear: err = %v, want %v", err, ErrNotFound)
+			}
+		})
+	}
+}
+
 func TestGetWithExpiration(t *testing.T) {
 	cache := NewCache(1024)
 	key := []byte("abcd")
@@ -633,6 +685,55 @@ func TestAverageAccessTimeWhenUpdateWithNewSpace(t *testing.T) {
 	aat = cache.AverageAccessTime()
 	if (now - aat) > 2 {
 		t.Fatalf("track average access time error, now:%d, aat:%d", now, aat)
+	}
+}
+
+func TestAverageAccessTimeWithClockRollback(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		read func(*Cache, []byte) ([]byte, error)
+	}{
+		{"Get", (*Cache).Get},
+		{"GetFn", func(cache *Cache, key []byte) (value []byte, err error) {
+			err = cache.GetFn(key, func(got []byte) error {
+				value = append([]byte(nil), got...)
+				return nil
+			})
+			return
+		}},
+		{"MultiGet", func(cache *Cache, key []byte) ([]byte, error) {
+			values, errs := cache.MultiGet([][]byte{key, key})
+			if errs[1] != nil {
+				return nil, errs[1]
+			}
+			return values[0], errs[0]
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := uint32(100)
+			timer := new(mockTimer)
+			timer.SetNowCallback(func() uint32 { return now })
+			cache := NewCacheCustomTimer(minBufSize, timer)
+			key := []byte("key")
+			value := []byte("value")
+			if err := cache.Set(key, value, 60); err != nil {
+				t.Fatal(err)
+			}
+			for _, timestamp := range []uint32{101, 99, 99, 102} {
+				now = timestamp
+				got, err := tc.read(cache, key)
+				if err != nil || !bytes.Equal(got, value) {
+					t.Fatalf("read at %d: value = %q, err = %v", now, got, err)
+				}
+				if got := cache.AverageAccessTime(); got != int64(now) {
+					t.Fatalf("AverageAccessTime = %d, want %d", got, now)
+				}
+				ttl, err := cache.TTL(key)
+				if err != nil || ttl != 160-now {
+					t.Fatalf("TTL at %d: ttl = %d, err = %v, want %d", now, ttl, err, 160-now)
+				}
+			}
+		})
 	}
 }
 
