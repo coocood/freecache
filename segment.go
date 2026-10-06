@@ -299,7 +299,7 @@ func (seg *segment) locate(key []byte, hashVal uint64, peek bool) (hdrEntry entr
 			atomic.AddInt64(&seg.missCount, 1)
 			return
 		}
-		atomic.AddInt64(&seg.totalTime, int64(now-hdr.accessTime))
+		atomic.AddInt64(&seg.totalTime, int64(now)-int64(hdr.accessTime))
 		hdr.accessTime = now
 		seg.rb.WriteAt(hdrBuf[:], ptr.offset)
 	}
