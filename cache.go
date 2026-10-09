@@ -20,6 +20,7 @@ const (
 type Cache struct {
 	locks    [segmentCount]sync.Mutex
 	segments [segmentCount]segment
+	policy   AdmissionPolicy
 }
 
 type Updater func(value []byte, found bool) (newValue []byte, replace bool, expireSeconds int)
@@ -39,6 +40,16 @@ func NewCache(size int) (cache *Cache) {
 
 // NewCacheCustomTimer returns new cache with custom timer.
 func NewCacheCustomTimer(size int, timer Timer) (cache *Cache) {
+	return NewCacheCustomTimerAndAdmission(size, timer, nil)
+}
+
+// NewCacheWithAdmissionPolicy returns new cache with admission policy.
+func NewCacheWithAdmissionPolicy(size int, policy AdmissionPolicy) (cache *Cache) {
+	return NewCacheCustomTimerAndAdmission(size, defaultTimer{}, policy)
+}
+
+// NewCacheCustomTimerAndAdmission returns new cache with custom timer and admission policy.
+func NewCacheCustomTimerAndAdmission(size int, timer Timer, policy AdmissionPolicy) (cache *Cache) {
 	if size < minBufSize {
 		size = minBufSize
 	}
@@ -46,8 +57,9 @@ func NewCacheCustomTimer(size int, timer Timer) (cache *Cache) {
 		timer = defaultTimer{}
 	}
 	cache = new(Cache)
+	cache.policy = policy
 	for i := 0; i < segmentCount; i++ {
-		cache.segments[i] = newSegment(size/segmentCount, i, timer)
+		cache.segments[i] = newSegment(size/segmentCount, i, timer, policy)
 	}
 	return
 }
@@ -424,6 +436,9 @@ func (cache *Cache) Clear() {
 		cache.segments[i].clear()
 		cache.locks[i].Unlock()
 	}
+	if resettable, ok := cache.policy.(interface{ Reset() }); ok {
+		resettable.Reset()
+	}
 }
 
 // ResetStatistics refreshes the current state of the statistics.
@@ -433,4 +448,27 @@ func (cache *Cache) ResetStatistics() {
 		cache.segments[i].resetStatistics()
 		cache.locks[i].Unlock()
 	}
+}
+
+// RejectCount indicates the number of times entries have been rejected by the admission policy.
+func (cache *Cache) RejectCount() (rejectCount int64) {
+	for i := range cache.segments {
+		rejectCount += atomic.LoadInt64(&cache.segments[i].rejections)
+	}
+	return
+}
+
+// SetAdmissionPolicy sets or updates the admission policy for the cache.
+func (cache *Cache) SetAdmissionPolicy(policy AdmissionPolicy) {
+	cache.policy = policy
+	for i := 0; i < segmentCount; i++ {
+		cache.locks[i].Lock()
+		cache.segments[i].policy = policy
+		cache.locks[i].Unlock()
+	}
+}
+
+// AdmissionPolicy returns the currently configured admission policy.
+func (cache *Cache) AdmissionPolicy() AdmissionPolicy {
+	return cache.policy
 }

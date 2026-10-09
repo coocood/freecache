@@ -12,6 +12,8 @@ const ENTRY_HDR_SIZE = 24
 var ErrLargeKey = errors.New("The key is larger than 65535")
 var ErrLargeEntry = errors.New("The entry size is larger than 1/1024 of cache size")
 var ErrNotFound = errors.New("Entry not found")
+var ErrNotAdmitted = errors.New("Entry not admitted")
+var ErrEntryNotAdmitted = ErrNotAdmitted
 
 // entry pointer struct points to an entry in ring buffer
 type entryPtr struct {
@@ -43,23 +45,26 @@ type segment struct {
 	missCount     int64
 	hitCount      int64
 	entryCount    int64
-	totalCount    int64      // number of entries in ring buffer, including deleted entries.
-	totalTime     int64      // used to calculate least recent used entry.
-	timer         Timer      // Timer giving current time
-	totalEvacuate int64      // used for debug
-	totalExpired  int64      // used for debug
-	overwrites    int64      // used for debug
-	touched       int64      // used for debug
-	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
-	slotLens      [256]int32 // The actual length for every slot.
-	slotCap       int32      // max number of entry pointers a slot can hold.
-	slotsData     []entryPtr // shared by all 256 slots
+	totalCount    int64           // number of entries in ring buffer, including deleted entries.
+	totalTime     int64           // used to calculate least recent used entry.
+	timer         Timer           // Timer giving current time
+	policy        AdmissionPolicy // Admission policy controlling entry admission
+	rejections    int64           // used for debug
+	totalEvacuate int64           // used for debug
+	totalExpired  int64           // used for debug
+	overwrites    int64           // used for debug
+	touched       int64           // used for debug
+	vacuumLen     int64           // up to vacuumLen, new data can be written without overwriting old data.
+	slotLens      [256]int32      // The actual length for every slot.
+	slotCap       int32           // max number of entry pointers a slot can hold.
+	slotsData     []entryPtr      // shared by all 256 slots
 }
 
-func newSegment(bufSize int, segId int, timer Timer) (seg segment) {
+func newSegment(bufSize int, segId int, timer Timer, policy AdmissionPolicy) (seg segment) {
 	seg.rb = NewRingBuf(bufSize, 0)
 	seg.segId = segId
 	seg.timer = timer
+	seg.policy = policy
 	seg.vacuumLen = int64(bufSize)
 	seg.slotCap = 1
 	seg.slotsData = make([]entryPtr, 256*seg.slotCap)
@@ -85,6 +90,25 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 	hash16 := uint16(hashVal >> 16)
 	slot := seg.getSlot(slotId)
 	idx, match := seg.lookup(slot, hash16, key)
+	if seg.policy != nil {
+		valLen := len(value)
+		if match {
+			if u, ok := seg.policy.(UpdateAwareAdmissionPolicy); ok {
+				if !u.AdmitUpdate(key, valLen, expireSeconds) {
+					atomic.AddInt64(&seg.rejections, 1)
+					return ErrNotAdmitted
+				}
+			} else if !seg.policy.Admit(key, valLen, expireSeconds) {
+				atomic.AddInt64(&seg.rejections, 1)
+				return ErrNotAdmitted
+			}
+		} else {
+			if !seg.policy.Admit(key, valLen, expireSeconds) {
+				atomic.AddInt64(&seg.rejections, 1)
+				return ErrNotAdmitted
+			}
+		}
+	}
 
 	var hdrBuf [ENTRY_HDR_SIZE]byte
 	hdr := (*entryHdr)(unsafe.Pointer(&hdrBuf[0]))
@@ -211,6 +235,13 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 		expired := isExpired(oldHdr.expireAt, now)
 		leastRecentUsed := int64(oldHdr.accessTime)*atomic.LoadInt64(&seg.totalCount) <= atomic.LoadInt64(&seg.totalTime)
 		if expired || leastRecentUsed || consecutiveEvacuate > 5 {
+			if !expired && seg.policy != nil {
+				if ea, ok := seg.policy.(EvictionAwareAdmissionPolicy); ok {
+					keyBuf := make([]byte, oldHdr.keyLen)
+					seg.rb.ReadAt(keyBuf, oldOff+ENTRY_HDR_SIZE)
+					ea.RecordEviction(keyBuf)
+				}
+			}
 			seg.delEntryPtrByOffset(oldHdr.slotId, oldHdr.hash16, oldOff)
 			if oldHdr.slotId == slotId {
 				slotModified = true
@@ -250,6 +281,11 @@ func (seg *segment) get(key, buf []byte, hashVal uint64, peek bool) (value []byt
 	seg.rb.ReadAt(value, ptrOffset+ENTRY_HDR_SIZE+int64(hdr.keyLen))
 	if !peek {
 		atomic.AddInt64(&seg.hitCount, 1)
+		if seg.policy != nil {
+			if aa, ok := seg.policy.(AccessAwareAdmissionPolicy); ok {
+				aa.RecordAccess(key)
+			}
+		}
 	}
 	return
 }
@@ -269,6 +305,11 @@ func (seg *segment) view(key []byte, fn func([]byte) error, hashVal uint64, peek
 	err = fn(val)
 	if !peek {
 		atomic.AddInt64(&seg.hitCount, 1)
+		if seg.policy != nil {
+			if aa, ok := seg.policy.(AccessAwareAdmissionPolicy); ok {
+				aa.RecordAccess(key)
+			}
+		}
 	}
 	return
 }
@@ -313,6 +354,11 @@ func (seg *segment) del(key []byte, hashVal uint64) (affected bool) {
 	idx, match := seg.lookup(slot, hash16, key)
 	if !match {
 		return false
+	}
+	if seg.policy != nil {
+		if ea, ok := seg.policy.(EvictionAwareAdmissionPolicy); ok {
+			ea.RecordEviction(key)
+		}
 	}
 	seg.delEntryPtr(slotId, slot, idx)
 	return true
@@ -452,6 +498,7 @@ func (seg *segment) resetStatistics() {
 	atomic.StoreInt64(&seg.overwrites, 0)
 	atomic.StoreInt64(&seg.hitCount, 0)
 	atomic.StoreInt64(&seg.missCount, 0)
+	atomic.StoreInt64(&seg.rejections, 0)
 }
 
 func (seg *segment) clear() {
@@ -472,6 +519,7 @@ func (seg *segment) clear() {
 	atomic.StoreInt64(&seg.totalEvacuate, 0)
 	atomic.StoreInt64(&seg.totalExpired, 0)
 	atomic.StoreInt64(&seg.overwrites, 0)
+	atomic.StoreInt64(&seg.rejections, 0)
 }
 
 func (seg *segment) getSlot(slotId uint8) []entryPtr {
