@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -23,6 +24,9 @@ type Cache struct {
 }
 
 type Updater func(value []byte, found bool) (newValue []byte, replace bool, expireSeconds int)
+
+// UpdaterDuration is similar to Updater but uses time.Duration for expiration.
+type UpdaterDuration func(value []byte, found bool) (newValue []byte, replace bool, expireDuration time.Duration)
 
 func hashFunc(data []byte) uint64 {
 	return xxhash.Sum64(data)
@@ -52,28 +56,44 @@ func NewCacheCustomTimer(size int, timer Timer) (cache *Cache) {
 	return
 }
 
+// SetDuration sets a key, value and expiration duration for a cache entry and stores it in the cache.
+// If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
+// the entry will not be written to the cache. duration <= 0 means no expire,
+// but it can be evicted when cache is full.
+func (cache *Cache) SetDuration(key, value []byte, duration time.Duration) (err error) {
+	hashVal := hashFunc(key)
+	segID := hashVal & segmentAndOpVal
+	cache.locks[segID].Lock()
+	err = cache.segments[segID].set(key, value, hashVal, int(duration.Seconds()))
+	cache.locks[segID].Unlock()
+	return
+}
+
 // Set sets a key, value and expiration for a cache entry and stores it in the cache.
 // If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
 // the entry will not be written to the cache. expireSeconds <= 0 means no expire,
 // but it can be evicted when cache is full.
+// Deprecated: Use SetDuration instead for better type safety and clarity.
 func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
+	return cache.SetDuration(key, value, time.Duration(expireSeconds)*time.Second)
+}
+
+// TouchDuration updates the expiration time of an existing key with a duration. duration <= 0 means no expire,
+// but it can be evicted when cache is full.
+func (cache *Cache) TouchDuration(key []byte, duration time.Duration) (err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
-	err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
+	err = cache.segments[segID].touch(key, hashVal, int(duration.Seconds()))
 	cache.locks[segID].Unlock()
 	return
 }
 
 // Touch updates the expiration time of an existing key. expireSeconds <= 0 means no expire,
 // but it can be evicted when cache is full.
+// Deprecated: Use TouchDuration instead for better type safety and clarity.
 func (cache *Cache) Touch(key []byte, expireSeconds int) (err error) {
-	hashVal := hashFunc(key)
-	segID := hashVal & segmentAndOpVal
-	cache.locks[segID].Lock()
-	err = cache.segments[segID].touch(key, hashVal, expireSeconds)
-	cache.locks[segID].Unlock()
-	return
+	return cache.TouchDuration(key, time.Duration(expireSeconds)*time.Second)
 }
 
 // Get returns the value or not found error.
@@ -145,9 +165,9 @@ func (cache *Cache) GetFn(key []byte, fn func([]byte) error) (err error) {
 	return
 }
 
-// GetOrSet returns existing value or if record doesn't exist
-// it sets a new key, value and expiration for a cache entry and stores it in the cache, returns nil in that case
-func (cache *Cache) GetOrSet(key, value []byte, expireSeconds int) (retValue []byte, err error) {
+// GetOrSetDuration returns existing value or if record doesn't exist
+// it sets a new key, value and expiration duration for a cache entry and stores it in the cache, returns nil in that case
+func (cache *Cache) GetOrSetDuration(key, value []byte, duration time.Duration) (retValue []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
@@ -155,17 +175,24 @@ func (cache *Cache) GetOrSet(key, value []byte, expireSeconds int) (retValue []b
 
 	retValue, _, err = cache.segments[segID].get(key, nil, hashVal, false)
 	if err != nil {
-		err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
+		err = cache.segments[segID].set(key, value, hashVal, int(duration.Seconds()))
 	}
 	return
 }
 
-// SetAndGet sets a key, value and expiration for a cache entry and stores it in the cache.
+// GetOrSet returns existing value or if record doesn't exist
+// it sets a new key, value and expiration for a cache entry and stores it in the cache, returns nil in that case
+// Deprecated: Use GetOrSetDuration instead for better type safety and clarity.
+func (cache *Cache) GetOrSet(key, value []byte, expireSeconds int) (retValue []byte, err error) {
+	return cache.GetOrSetDuration(key, value, time.Duration(expireSeconds)*time.Second)
+}
+
+// SetAndGetDuration sets a key, value and expiration duration for a cache entry and stores it in the cache.
 // If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
-// the entry will not be written to the cache. expireSeconds <= 0 means no expire,
+// the entry will not be written to the cache. duration <= 0 means no expire,
 // but it can be evicted when cache is full.  Returns existing value if record exists
 // with a bool value to indicate whether an existing record was found
-func (cache *Cache) SetAndGet(key, value []byte, expireSeconds int) (retValue []byte, found bool, err error) {
+func (cache *Cache) SetAndGetDuration(key, value []byte, duration time.Duration) (retValue []byte, found bool, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
@@ -175,17 +202,22 @@ func (cache *Cache) SetAndGet(key, value []byte, expireSeconds int) (retValue []
 	if err == nil {
 		found = true
 	}
-	err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
+	err = cache.segments[segID].set(key, value, hashVal, int(duration.Seconds()))
 	return
 }
 
-// Update gets value for a key, passes it to updater function that decides if set should be called as well
-// This allows for an atomic Get plus Set call using the existing value to decide on whether to call Set.
+// SetAndGet sets a key, value and expiration for a cache entry and stores it in the cache.
 // If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
 // the entry will not be written to the cache. expireSeconds <= 0 means no expire,
-// but it can be evicted when cache is full. Returns bool value to indicate if existing record was found along with bool
-// value indicating the value was replaced and error if any
-func (cache *Cache) Update(key []byte, updater Updater) (found bool, replaced bool, err error) {
+// but it can be evicted when cache is full.  Returns existing value if record exists
+// with a bool value to indicate whether an existing record was found
+// Deprecated: Use SetAndGetDuration instead for better type safety and clarity.
+func (cache *Cache) SetAndGet(key, value []byte, expireSeconds int) (retValue []byte, found bool, err error) {
+	return cache.SetAndGetDuration(key, value, time.Duration(expireSeconds)*time.Second)
+}
+
+// UpdateDuration is similar to Update but uses time.Duration for expiration.
+func (cache *Cache) UpdateDuration(key []byte, updater UpdaterDuration) (found bool, replaced bool, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
@@ -197,12 +229,26 @@ func (cache *Cache) Update(key []byte, updater Updater) (found bool, replaced bo
 	} else {
 		err = nil // Clear ErrNotFound error since we're returning found flag
 	}
-	value, replaced, expireSeconds := updater(retValue, found)
+	value, replaced, expireDuration := updater(retValue, found)
 	if !replaced {
 		return
 	}
-	err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
+	err = cache.segments[segID].set(key, value, hashVal, int(expireDuration.Seconds()))
 	return
+}
+
+// Update gets value for a key, passes it to updater function that decides if set should be called as well
+// This allows for an atomic Get plus Set call using the existing value to decide on whether to call Set.
+// If the key is larger than 65535 or value is larger than 1/1024 of the cache size,
+// the entry will not be written to the cache. expireSeconds <= 0 means no expire,
+// but it can be evicted when cache is full. Returns bool value to indicate if existing record was found along with bool
+// value indicating the value was replaced and error if any
+// Deprecated: Use UpdateDuration instead for better type safety and clarity.
+func (cache *Cache) Update(key []byte, updater Updater) (found bool, replaced bool, err error) {
+	return cache.UpdateDuration(key, func(value []byte, found bool) ([]byte, bool, time.Duration) {
+		newValue, replace, expireSeconds := updater(value, found)
+		return newValue, replace, time.Duration(expireSeconds) * time.Second
+	})
 }
 
 // Peek returns the value or not found error, without updating access time or counters.
