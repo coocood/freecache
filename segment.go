@@ -47,13 +47,16 @@ type segment struct {
 	totalTime     int64      // used to calculate least recent used entry.
 	timer         Timer      // Timer giving current time
 	totalEvacuate int64      // used for debug
-	totalExpired  int64      // used for debug
-	overwrites    int64      // used for debug
-	touched       int64      // used for debug
-	vacuumLen     int64      // up to vacuumLen, new data can be written without overwriting old data.
-	slotLens      [256]int32 // The actual length for every slot.
-	slotCap       int32      // max number of entry pointers a slot can hold.
-	slotsData     []entryPtr // shared by all 256 slots
+	totalExpired   int64      // used for debug
+	overwrites     int64      // used for debug
+	touched        int64      // used for debug
+	vacuumLen      int64      // up to vacuumLen, new data can be written without overwriting old data.
+	entryBytes     int64      // total size in bytes occupied by active entries
+	totalEvict     int64      // total number of evicted entries
+	totalEvictTime int64      // total lifetime in seconds of evicted entries
+	slotLens       [256]int32 // The actual length for every slot.
+	slotCap        int32      // max number of entry pointers a slot can hold.
+	slotsData      []entryPtr // shared by all 256 slots
 }
 
 func newSegment(bufSize int, segId int, timer Timer) (seg segment) {
@@ -147,6 +150,7 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 	atomic.AddInt64(&seg.totalTime, int64(now))
 	atomic.AddInt64(&seg.totalCount, 1)
 	seg.vacuumLen -= entryLen
+	atomic.AddInt64(&seg.entryBytes, entryLen)
 	return
 }
 
@@ -223,6 +227,10 @@ func (seg *segment) evacuate(entryLen int64, slotId uint8, now uint32) (slotModi
 				atomic.AddInt64(&seg.totalExpired, 1)
 			} else {
 				atomic.AddInt64(&seg.totalEvacuate, 1)
+				atomic.AddInt64(&seg.totalEvict, 1)
+				if now >= oldHdr.accessTime {
+					atomic.AddInt64(&seg.totalEvictTime, int64(now-oldHdr.accessTime))
+				}
 			}
 		} else {
 			// evacuate an old entry that has been accessed recently for better cache hit rate.
@@ -398,6 +406,8 @@ func (seg *segment) delEntryPtr(slotId uint8, slot []entryPtr, idx int) {
 	copy(slot[idx:], slot[idx+1:])
 	seg.slotLens[slotId]--
 	atomic.AddInt64(&seg.entryCount, -1)
+	entryLen := ENTRY_HDR_SIZE + int64(entryHdr.keyLen) + int64(entryHdr.valCap)
+	atomic.AddInt64(&seg.entryBytes, -entryLen)
 }
 
 func entryPtrIdx(slot []entryPtr, hash16 uint16) (idx int) {
@@ -452,6 +462,8 @@ func (seg *segment) resetStatistics() {
 	atomic.StoreInt64(&seg.overwrites, 0)
 	atomic.StoreInt64(&seg.hitCount, 0)
 	atomic.StoreInt64(&seg.missCount, 0)
+	atomic.StoreInt64(&seg.totalEvict, 0)
+	atomic.StoreInt64(&seg.totalEvictTime, 0)
 }
 
 func (seg *segment) clear() {
@@ -472,6 +484,9 @@ func (seg *segment) clear() {
 	atomic.StoreInt64(&seg.totalEvacuate, 0)
 	atomic.StoreInt64(&seg.totalExpired, 0)
 	atomic.StoreInt64(&seg.overwrites, 0)
+	atomic.StoreInt64(&seg.entryBytes, 0)
+	atomic.StoreInt64(&seg.totalEvict, 0)
+	atomic.StoreInt64(&seg.totalEvictTime, 0)
 }
 
 func (seg *segment) getSlot(slotId uint8) []entryPtr {

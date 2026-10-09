@@ -337,6 +337,19 @@ func (cache *Cache) EvacuateCount() (count int64) {
 	return
 }
 
+// EvictCount is a metric indicating the number of times an entry was evicted from the cache.
+func (cache *Cache) EvictCount() (count int64) {
+	for i := range cache.segments {
+		count += atomic.LoadInt64(&cache.segments[i].totalEvict)
+	}
+	return
+}
+
+// EvictionCount is an alias for EvictCount.
+func (cache *Cache) EvictionCount() int64 {
+	return cache.EvictCount()
+}
+
 // ExpiredCount is a metric indicating the number of times an expire occurred.
 func (cache *Cache) ExpiredCount() (count int64) {
 	for i := range cache.segments {
@@ -353,6 +366,58 @@ func (cache *Cache) EntryCount() (entryCount int64) {
 	return
 }
 
+// EntrySize returns the total size in bytes occupied by active entries in the cache.
+func (cache *Cache) EntrySize() (entrySize int64) {
+	for i := range cache.segments {
+		entrySize += atomic.LoadInt64(&cache.segments[i].entryBytes)
+	}
+	if entrySize < 0 {
+		return 0
+	}
+	return
+}
+
+// EntryBytes is an alias for EntrySize.
+func (cache *Cache) EntryBytes() int64 {
+	return cache.EntrySize()
+}
+
+// UsedBytes is an alias for EntrySize.
+func (cache *Cache) UsedBytes() int64 {
+	return cache.EntrySize()
+}
+
+// TotalSize returns the total buffer size in bytes allocated for the cache.
+func (cache *Cache) TotalSize() int64 {
+	var total int64
+	for i := range cache.segments {
+		total += cache.segments[i].rb.Size()
+	}
+	return total
+}
+
+// Size is an alias for TotalSize.
+func (cache *Cache) Size() int64 {
+	return cache.TotalSize()
+}
+
+// SpaceUsage returns the ratio of memory space used by active entries over total cache size.
+func (cache *Cache) SpaceUsage() float64 {
+	totalSize := cache.TotalSize()
+	if totalSize == 0 {
+		return 0
+	}
+	entrySize := cache.EntrySize()
+	if entrySize <= 0 {
+		return 0
+	}
+	usage := float64(entrySize) / float64(totalSize)
+	if usage > 1.0 {
+		return 1.0
+	}
+	return usage
+}
+
 // AverageAccessTime returns the average unix timestamp when a entry being accessed.
 // Entries have greater access time will be evacuated when it
 // is about to be overwritten by new value.
@@ -367,6 +432,24 @@ func (cache *Cache) AverageAccessTime() int64 {
 	} else {
 		return totalTime / entryCount
 	}
+}
+
+// AverageEvictLifetime returns the average lifetime in seconds of evicted entries.
+func (cache *Cache) AverageEvictLifetime() int64 {
+	var totalEvict, totalLifetime int64
+	for i := range cache.segments {
+		totalLifetime += atomic.LoadInt64(&cache.segments[i].totalEvictTime)
+		totalEvict += atomic.LoadInt64(&cache.segments[i].totalEvict)
+	}
+	if totalEvict == 0 {
+		return 0
+	}
+	return totalLifetime / totalEvict
+}
+
+// AverageEvictedLifetime is an alias for AverageEvictLifetime.
+func (cache *Cache) AverageEvictedLifetime() int64 {
+	return cache.AverageEvictLifetime()
 }
 
 // HitCount is a metric that returns number of times a key was found in the cache.
