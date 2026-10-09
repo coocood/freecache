@@ -1448,3 +1448,318 @@ func TestBenchmarkCacheSet(t *testing.T) {
 		t.Errorf("current alloc count '%d' is higher than 0", alloc)
 	}
 }
+
+func TestCacheSizeAndSpaceUsage(t *testing.T) {
+	const cacheSize = 512 * 1024
+	cache := NewCache(cacheSize)
+
+	if cache.TotalSize() != cacheSize {
+		t.Fatalf("expected TotalSize %d, got %d", cacheSize, cache.TotalSize())
+	}
+	if cache.Size() != cacheSize {
+		t.Fatalf("expected Size %d, got %d", cacheSize, cache.Size())
+	}
+	if cache.EntrySize() != 0 {
+		t.Fatalf("expected initial EntrySize 0, got %d", cache.EntrySize())
+	}
+	if cache.EntryBytes() != 0 {
+		t.Fatalf("expected initial EntryBytes 0, got %d", cache.EntryBytes())
+	}
+	if cache.UsedBytes() != 0 {
+		t.Fatalf("expected initial UsedBytes 0, got %d", cache.UsedBytes())
+	}
+	if cache.SpaceUsage() != 0 {
+		t.Fatalf("expected initial SpaceUsage 0, got %f", cache.SpaceUsage())
+	}
+
+	key1 := []byte("key-1")
+	val1 := []byte("val-1")
+	err := cache.Set(key1, val1, 0)
+	if err != nil {
+		t.Fatalf("unexpected error setting key1: %v", err)
+	}
+
+	// entryLen = ENTRY_HDR_SIZE (24) + len(key1) (5) + valCap (5) = 34
+	expectedSize1 := int64(ENTRY_HDR_SIZE + len(key1) + len(val1))
+	if cache.EntrySize() != expectedSize1 {
+		t.Fatalf("expected EntrySize %d, got %d", expectedSize1, cache.EntrySize())
+	}
+	expectedUsage := float64(expectedSize1) / float64(cacheSize)
+	if cache.SpaceUsage() != expectedUsage {
+		t.Fatalf("expected SpaceUsage %f, got %f", expectedUsage, cache.SpaceUsage())
+	}
+
+	// In-place overwrite with same length value should preserve EntrySize
+	val1Updated := []byte("val-2")
+	err = cache.Set(key1, val1Updated, 0)
+	if err != nil {
+		t.Fatalf("unexpected error updating key1 in-place: %v", err)
+	}
+	if cache.EntrySize() != expectedSize1 {
+		t.Fatalf("expected EntrySize %d after in-place update, got %d", expectedSize1, cache.EntrySize())
+	}
+
+	// Update with larger value requiring new capacity (capacity doubles from 5 to 10 to 20)
+	val1Larger := []byte("val-1-longer-content")
+	err = cache.Set(key1, val1Larger, 0)
+	if err != nil {
+		t.Fatalf("unexpected error updating key1 with larger value: %v", err)
+	}
+	// valCap doubles until >= len(val1Larger). 5 -> 10 -> 20. len("val-1-longer-content") = 20.
+	expectedSizeUpdated := int64(ENTRY_HDR_SIZE + len(key1) + 20)
+	if cache.EntrySize() != expectedSizeUpdated {
+		t.Fatalf("expected EntrySize %d after larger update, got %d", expectedSizeUpdated, cache.EntrySize())
+	}
+
+	// Add second key
+	key2 := []byte("key-2")
+	val2 := []byte("val-2-data")
+	err = cache.Set(key2, val2, 0)
+	if err != nil {
+		t.Fatalf("unexpected error setting key2: %v", err)
+	}
+	expectedSize2 := expectedSizeUpdated + int64(ENTRY_HDR_SIZE+len(key2)+len(val2))
+	if cache.EntrySize() != expectedSize2 {
+		t.Fatalf("expected EntrySize %d, got %d", expectedSize2, cache.EntrySize())
+	}
+
+	// Delete key1
+	affected := cache.Del(key1)
+	if !affected {
+		t.Fatalf("expected key1 to be deleted")
+	}
+	expectedSizeAfterDel := int64(ENTRY_HDR_SIZE + len(key2) + len(val2))
+	if cache.EntrySize() != expectedSizeAfterDel {
+		t.Fatalf("expected EntrySize %d after Del, got %d", expectedSizeAfterDel, cache.EntrySize())
+	}
+
+	// Integer key SetInt / DelInt
+	err = cache.SetInt(12345, []byte("int-val"), 0)
+	if err != nil {
+		t.Fatalf("unexpected error setting int key: %v", err)
+	}
+	expectedWithInt := expectedSizeAfterDel + int64(ENTRY_HDR_SIZE+8+7)
+	if cache.EntrySize() != expectedWithInt {
+		t.Fatalf("expected EntrySize %d after SetInt, got %d", expectedWithInt, cache.EntrySize())
+	}
+	affected = cache.DelInt(12345)
+	if !affected {
+		t.Fatalf("expected int key to be deleted")
+	}
+	if cache.EntrySize() != expectedSizeAfterDel {
+		t.Fatalf("expected EntrySize %d after DelInt, got %d", expectedSizeAfterDel, cache.EntrySize())
+	}
+
+	// Clear cache
+	cache.Clear()
+	if cache.EntrySize() != 0 {
+		t.Fatalf("expected EntrySize 0 after Clear, got %d", cache.EntrySize())
+	}
+	if cache.SpaceUsage() != 0 {
+		t.Fatalf("expected SpaceUsage 0 after Clear, got %f", cache.SpaceUsage())
+	}
+}
+
+func TestEvictCountAndAverageEvictLifetime(t *testing.T) {
+	var currentTime uint32 = 1000
+	timer := new(mockTimer)
+	timer.SetNowCallback(func() uint32 {
+		return atomic.LoadUint32(&currentTime)
+	})
+
+	cache := NewCacheCustomTimer(minBufSize, timer)
+
+	if cache.EvictCount() != 0 {
+		t.Fatalf("expected initial EvictCount 0, got %d", cache.EvictCount())
+	}
+	if cache.EvictionCount() != 0 {
+		t.Fatalf("expected initial EvictionCount 0, got %d", cache.EvictionCount())
+	}
+	if cache.AverageEvictLifetime() != 0 {
+		t.Fatalf("expected initial AverageEvictLifetime 0, got %d", cache.AverageEvictLifetime())
+	}
+	if cache.AverageEvictedLifetime() != 0 {
+		t.Fatalf("expected initial AverageEvictedLifetime 0, got %d", cache.AverageEvictedLifetime())
+	}
+
+	// Populate initial entries at timestamp 1000 that comfortably fit in cache without evictions
+	val := make([]byte, 80)
+	const batch1 = 1500
+	for i := 0; i < batch1; i++ {
+		key := []byte(strconv.Itoa(i))
+		if err := cache.Set(key, val, 0); err != nil {
+			t.Fatalf("failed to set key %d: %v", i, err)
+		}
+	}
+
+	if cache.EvictCount() != 0 {
+		t.Fatalf("expected 0 evictions after batch1, got %d", cache.EvictCount())
+	}
+
+	// Advance time by 10 seconds before inserting batch 2 to induce evictions of batch 1 entries
+	atomic.StoreUint32(&currentTime, 1010)
+	const batch2 = 1500
+	const total = batch1 + batch2
+	for i := batch1; i < total; i++ {
+		key := []byte(strconv.Itoa(i))
+		if err := cache.Set(key, val, 0); err != nil {
+			t.Fatalf("failed to set key %d: %v", i, err)
+		}
+	}
+
+	evictCount := cache.EvictCount()
+	if evictCount == 0 {
+		t.Fatalf("expected evictions to occur, got 0")
+	}
+	if cache.EvictionCount() != evictCount {
+		t.Fatalf("expected EvictionCount to equal EvictCount %d, got %d", evictCount, cache.EvictionCount())
+	}
+
+	// Since no entries expired, entryCount + evictCount must equal total unique keys inserted
+	if cache.EntryCount()+evictCount != int64(total) {
+		t.Fatalf("expected EntryCount (%d) + EvictCount (%d) == %d", cache.EntryCount(), evictCount, total)
+	}
+
+	// All evicted entries were from batch1 (inserted at 1000, evicted at 1010), so average lifetime is 10s
+	avgLifetime := cache.AverageEvictLifetime()
+	if avgLifetime != 10 {
+		t.Fatalf("expected AverageEvictLifetime 10s, got %d", avgLifetime)
+	}
+	if cache.AverageEvictedLifetime() != avgLifetime {
+		t.Fatalf("expected AverageEvictedLifetime to equal AverageEvictLifetime %d, got %d", avgLifetime, cache.AverageEvictedLifetime())
+	}
+
+	// ResetStatistics resets EvictCount and AverageEvictLifetime, but preserves EntryCount and EntrySize
+	entryCountBefore := cache.EntryCount()
+	entrySizeBefore := cache.EntrySize()
+	cache.ResetStatistics()
+
+	if cache.EvictCount() != 0 {
+		t.Fatalf("expected EvictCount 0 after ResetStatistics, got %d", cache.EvictCount())
+	}
+	if cache.AverageEvictLifetime() != 0 {
+		t.Fatalf("expected AverageEvictLifetime 0 after ResetStatistics, got %d", cache.AverageEvictLifetime())
+	}
+	if cache.EntryCount() != entryCountBefore {
+		t.Fatalf("expected EntryCount to remain %d, got %d", entryCountBefore, cache.EntryCount())
+	}
+	if cache.EntrySize() != entrySizeBefore {
+		t.Fatalf("expected EntrySize to remain %d, got %d", entrySizeBefore, cache.EntrySize())
+	}
+}
+
+func TestEvictLifetimeClockRollback(t *testing.T) {
+	var currentTime uint32 = 2000
+	timer := new(mockTimer)
+	timer.SetNowCallback(func() uint32 {
+		return atomic.LoadUint32(&currentTime)
+	})
+
+	cache := NewCacheCustomTimer(minBufSize, timer)
+	val := make([]byte, 100)
+	n := 8000
+
+	for i := 0; i < n/2; i++ {
+		key := []byte(strconv.Itoa(i))
+		if err := cache.Set(key, val, 0); err != nil {
+			t.Fatalf("failed to set key %d: %v", i, err)
+		}
+	}
+
+	// Simulate clock rollback to timestamp before entries were created
+	atomic.StoreUint32(&currentTime, 1900)
+	for i := n / 2; i < n; i++ {
+		key := []byte(strconv.Itoa(i))
+		if err := cache.Set(key, val, 0); err != nil {
+			t.Fatalf("failed to set key %d: %v", i, err)
+		}
+	}
+
+	if cache.EvictCount() == 0 {
+		t.Fatalf("expected evictions to occur")
+	}
+	if cache.AverageEvictLifetime() < 0 {
+		t.Fatalf("AverageEvictLifetime must not be negative on clock rollback, got %d", cache.AverageEvictLifetime())
+	}
+}
+
+func TestEntrySizeExpiredKeyCleanedUp(t *testing.T) {
+	var currentTime uint32 = 1000
+	timer := new(mockTimer)
+	timer.SetNowCallback(func() uint32 {
+		return atomic.LoadUint32(&currentTime)
+	})
+
+	cache := NewCacheCustomTimer(minBufSize, timer)
+	key := []byte("expiring-key")
+	val := []byte("expiring-val")
+
+	if err := cache.Set(key, val, 5); err != nil {
+		t.Fatalf("unexpected error setting key: %v", err)
+	}
+
+	expectedSize := int64(ENTRY_HDR_SIZE + len(key) + len(val))
+	if cache.EntrySize() != expectedSize {
+		t.Fatalf("expected EntrySize %d, got %d", expectedSize, cache.EntrySize())
+	}
+
+	// Advance time past expiration
+	atomic.StoreUint32(&currentTime, 1010)
+
+	// Access key to trigger lazy expiration cleanup
+	_, err := cache.Get(key)
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for expired key, got %v", err)
+	}
+
+	if cache.EntrySize() != 0 {
+		t.Fatalf("expected EntrySize 0 after expired key cleanup, got %d", cache.EntrySize())
+	}
+	if cache.ExpiredCount() != 1 {
+		t.Fatalf("expected ExpiredCount 1, got %d", cache.ExpiredCount())
+	}
+	if cache.EvictCount() != 0 {
+		t.Fatalf("expired key should not increment EvictCount, got %d", cache.EvictCount())
+	}
+}
+
+func TestConcurrentEntrySizeAndEviction(t *testing.T) {
+	const cacheSize = 512 * 1024
+	cache := NewCache(cacheSize)
+	const goroutines = 8
+	const opsPerGoroutine = 500
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		go func(gid int) {
+			defer wg.Done()
+			for i := 0; i < opsPerGoroutine; i++ {
+				key := []byte(fmt.Sprintf("k-%d-%d", gid, i))
+				val := []byte(fmt.Sprintf("v-%d-%d-longer-payload-content", gid, i))
+				_ = cache.Set(key, val, 0)
+				if i%3 == 0 {
+					_ = cache.Del(key)
+				}
+				usage := cache.SpaceUsage()
+				if usage < 0 || usage > 1.0 {
+					t.Errorf("SpaceUsage out of bounds: %f", usage)
+				}
+				entrySize := cache.EntrySize()
+				if entrySize < 0 || entrySize > int64(cacheSize) {
+					t.Errorf("EntrySize out of bounds: %d", entrySize)
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	if cache.EntrySize() < 0 {
+		t.Fatalf("final EntrySize must not be negative: %d", cache.EntrySize())
+	}
+	if cache.SpaceUsage() < 0 || cache.SpaceUsage() > 1.0 {
+		t.Fatalf("final SpaceUsage out of bounds: %f", cache.SpaceUsage())
+	}
+}
