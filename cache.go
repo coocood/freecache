@@ -60,8 +60,8 @@ func (cache *Cache) Set(key, value []byte, expireSeconds int) (err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	err = cache.segments[segID].set(key, value, hashVal, expireSeconds)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -71,8 +71,8 @@ func (cache *Cache) Touch(key []byte, expireSeconds int) (err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	err = cache.segments[segID].touch(key, hashVal, expireSeconds)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -81,8 +81,8 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	value, _, err = cache.segments[segID].get(key, nil, hashVal, false)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -117,12 +117,14 @@ func (cache *Cache) MultiGet(keys [][]byte) (values [][]byte, errs []error) {
 			continue
 		}
 		cache.locks[segID].Lock()
-		for _, loc := range batch {
-			value, _, err := cache.segments[segID].get(keys[loc.idx], nil, loc.hashVal, false)
-			values[loc.idx] = value
-			errs[loc.idx] = err
-		}
-		cache.locks[segID].Unlock()
+		func() {
+			defer cache.locks[segID].Unlock()
+			for _, loc := range batch {
+				value, _, err := cache.segments[segID].get(keys[loc.idx], nil, loc.hashVal, false)
+				values[loc.idx] = value
+				errs[loc.idx] = err
+			}
+		}()
 	}
 	return values, errs
 }
@@ -212,8 +214,8 @@ func (cache *Cache) Peek(key []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	value, _, err = cache.segments[segID].get(key, nil, hashVal, true)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -224,8 +226,8 @@ func (cache *Cache) PeekWithExpiration(key []byte) (value []byte, expireAt uint3
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	value, expireAt, err = cache.segments[segID].get(key, nil, hashVal, true)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -255,8 +257,8 @@ func (cache *Cache) GetWithBuf(key, buf []byte) (value []byte, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	value, _, err = cache.segments[segID].get(key, buf, hashVal, false)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -265,8 +267,8 @@ func (cache *Cache) GetWithExpiration(key []byte) (value []byte, expireAt uint32
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	value, expireAt, err = cache.segments[segID].get(key, nil, hashVal, false)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -276,8 +278,8 @@ func (cache *Cache) GetWithExpirationAndBuf(key []byte, buf []byte) (value []byt
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	value, expireAt, err = cache.segments[segID].get(key, buf, hashVal, false)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -286,8 +288,8 @@ func (cache *Cache) TTL(key []byte) (timeLeft uint32, err error) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	timeLeft, err = cache.segments[segID].ttl(key, hashVal)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -296,8 +298,8 @@ func (cache *Cache) Del(key []byte) (affected bool) {
 	hashVal := hashFunc(key)
 	segID := hashVal & segmentAndOpVal
 	cache.locks[segID].Lock()
+	defer cache.locks[segID].Unlock()
 	affected = cache.segments[segID].del(key, hashVal)
-	cache.locks[segID].Unlock()
 	return
 }
 
@@ -421,8 +423,10 @@ func (cache *Cache) TouchedCount() (touchedCount int64) {
 func (cache *Cache) Clear() {
 	for i := range cache.segments {
 		cache.locks[i].Lock()
-		cache.segments[i].clear()
-		cache.locks[i].Unlock()
+		func() {
+			defer cache.locks[i].Unlock()
+			cache.segments[i].clear()
+		}()
 	}
 }
 
@@ -430,7 +434,9 @@ func (cache *Cache) Clear() {
 func (cache *Cache) ResetStatistics() {
 	for i := range cache.segments {
 		cache.locks[i].Lock()
-		cache.segments[i].resetStatistics()
-		cache.locks[i].Unlock()
+		func() {
+			defer cache.locks[i].Unlock()
+			cache.segments[i].resetStatistics()
+		}()
 	}
 }
