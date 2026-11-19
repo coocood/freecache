@@ -68,18 +68,24 @@ func newSegment(bufSize int, segId int, timer Timer) (seg segment) {
 }
 
 // expireAtFrom converts a relative TTL in seconds into an absolute unix
-// timestamp. expireSeconds <= 0 means no expiry (0). If now+expireSeconds
-// would overflow uint32, clamp to math.MaxUint32 instead of wrapping, which
-// would otherwise store 0 (never expire) or a time in the past.
+// timestamp. expireSeconds <= 0 means no expiry (0).
+//
+// The relative TTL is taken as uint32(expireSeconds), matching the historical
+// cast before addition. If now+ttl wraps in uint32, the old code could store 0
+// (treated as never-expire) or a time in the past (immediate miss). Clamp to
+// math.MaxUint32 so the entry still expires at the far end of the representable
+// range instead of wrapping.
 func expireAtFrom(now uint32, expireSeconds int) uint32 {
 	if expireSeconds <= 0 {
 		return 0
 	}
-	sum := uint64(now) + uint64(expireSeconds)
-	if sum > math.MaxUint32 {
+	ttl := uint32(expireSeconds)
+	expireAt := now + ttl
+	if expireAt < now {
+		// wrapped
 		return math.MaxUint32
 	}
-	return uint32(sum)
+	return expireAt
 }
 
 func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (err error) {
