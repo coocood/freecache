@@ -2,6 +2,7 @@ package freecache
 
 import (
 	"errors"
+	"math"
 	"sync/atomic"
 	"unsafe"
 )
@@ -66,6 +67,27 @@ func newSegment(bufSize int, segId int, timer Timer) (seg segment) {
 	return
 }
 
+// expireAtFrom converts a relative TTL in seconds into an absolute unix
+// timestamp. expireSeconds <= 0 means no expiry (0).
+//
+// The relative TTL is taken as uint32(expireSeconds), matching the historical
+// cast before addition. If now+ttl wraps in uint32, the old code could store 0
+// (treated as never-expire) or a time in the past (immediate miss). Clamp to
+// math.MaxUint32 so the entry still expires at the far end of the representable
+// range instead of wrapping.
+func expireAtFrom(now uint32, expireSeconds int) uint32 {
+	if expireSeconds <= 0 {
+		return 0
+	}
+	ttl := uint32(expireSeconds)
+	expireAt := now + ttl
+	if expireAt < now {
+		// wrapped
+		return math.MaxUint32
+	}
+	return expireAt
+}
+
 func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (err error) {
 	if len(key) > 65535 {
 		return ErrLargeKey
@@ -76,10 +98,7 @@ func (seg *segment) set(key, value []byte, hashVal uint64, expireSeconds int) (e
 		return ErrLargeEntry
 	}
 	now := seg.timer.Now()
-	expireAt := uint32(0)
-	if expireSeconds > 0 {
-		expireAt = now + uint32(expireSeconds)
-	}
+	expireAt := expireAtFrom(now, expireSeconds)
 
 	slotId := uint8(hashVal >> 8)
 	hash16 := uint16(hashVal >> 16)
@@ -178,10 +197,7 @@ func (seg *segment) touch(key []byte, hashVal uint64, expireSeconds int) (err er
 		return
 	}
 
-	expireAt := uint32(0)
-	if expireSeconds > 0 {
-		expireAt = now + uint32(expireSeconds)
-	}
+	expireAt := expireAtFrom(now, expireSeconds)
 
 	originAccessTime := hdr.accessTime
 	hdr.accessTime = now
