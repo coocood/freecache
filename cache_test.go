@@ -1448,3 +1448,58 @@ func TestBenchmarkCacheSet(t *testing.T) {
 		t.Errorf("current alloc count '%d' is higher than 0", alloc)
 	}
 }
+
+
+func TestExpireSecondsOverflowDoesNotWrap(t *testing.T) {
+	timer := new(mockTimer)
+	const now uint32 = 1_700_000_000
+	timer.SetNowCallback(func() uint32 { return now })
+	cache := NewCacheCustomTimer(1024*1024, timer)
+
+	// now + expireSeconds overflows uint32 to 0, which freecache treats as "no expire".
+	wrapToZero := int(^uint32(0) - now + 1)
+	if err := cache.Set([]byte("k0"), []byte("v0"), wrapToZero); err != nil {
+		t.Fatal(err)
+	}
+	_, expireAt, err := cache.GetWithExpiration([]byte("k0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expireAt == 0 {
+		t.Fatalf("Set(..., expireSeconds=%d) stored expireAt=0 (never expires)", wrapToZero)
+	}
+	if expireAt <= now {
+		t.Fatalf("expireAt=%d should be after now=%d", expireAt, now)
+	}
+
+	// now + expireSeconds overflows to a small value <= now → entry looks already expired.
+	wrapToPast := int(^uint32(0) - now + 5) // uint32 sum == 4
+	if err := cache.Set([]byte("k1"), []byte("v1"), wrapToPast); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.Get([]byte("k1")); err != nil {
+		t.Fatalf("Set(..., expireSeconds=%d) should keep a future expiry; Get returned %v", wrapToPast, err)
+	}
+	_, expireAt, err = cache.GetWithExpiration([]byte("k1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expireAt <= now {
+		t.Fatalf("expireAt=%d should be after now=%d", expireAt, now)
+	}
+
+	// Touch has the same overflow.
+	if err := cache.Set([]byte("k2"), []byte("v2"), 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.Touch([]byte("k2"), wrapToZero); err != nil {
+		t.Fatal(err)
+	}
+	_, expireAt, err = cache.GetWithExpiration([]byte("k2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expireAt == 0 {
+		t.Fatalf("Touch(..., expireSeconds=%d) stored expireAt=0 (never expires)", wrapToZero)
+	}
+}
