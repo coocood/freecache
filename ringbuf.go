@@ -95,8 +95,9 @@ func (rb *RingBuf) getDataOff(off int64) int {
 
 // Slice returns a slice of the supplied range of the ring buffer. It will
 // not alloc unless the requested range wraps the ring buffer.
+// It returns ErrOutOfRange if length is negative or the range is not retained.
 func (rb *RingBuf) Slice(off, length int64) ([]byte, error) {
-	if off > rb.end || off < rb.begin {
+	if off > rb.end || off < rb.begin || length < 0 || length > rb.end-off {
 		return nil, ErrOutOfRange
 	}
 	readOff := rb.getDataOff(off)
